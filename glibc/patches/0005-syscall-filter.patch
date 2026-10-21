@@ -1,0 +1,284 @@
+--- a/sysdeps/unix/sysv/linux/aarch64/syscall.S
++++ b/sysdeps/unix/sysv/linux/aarch64/syscall.S
+@@ -28,6 +28,21 @@
+ 
+ ENTRY (syscall)
+ 	uxtw	x8, w0
++
++	/* The HongMeng kernel answers a policy-blocked syscall with SIGSYS instead of
++	   ENOSYS, which kills the caller.  The numbers below are the ones a
++	   probe on a HarmonyOS PC observed dying that way; return ENOSYS for
++	   them so callers take their normal fallback.  Keep the table sorted
++	   and re-run the probe when the kernel changes.  */
++	adrp	x9, .Lblocked_syscalls
++	add	x9, x9, :lo12:.Lblocked_syscalls
++	mov	w10, #246
++.Lblocked_loop:
++	ldr	w11, [x9], #4
++	cmp	w8, w11
++	b.eq	99f
++	subs	w10, w10, #1
++	b.ne	.Lblocked_loop
+ 	mov	x0, x1
+ 	mov	x1, x2
+ 	mov	x2, x3
+@@ -39,6 +54,259 @@
+ 	cmn	x0, #4095
+ 	b.cs	1f
+ 	RET
++99:
++	mov	w0, #-38
+ 1:
+ 	b	SYSCALL_ERROR
+ PSEUDO_END (syscall)
++
++	.section	.rodata
++	.align	2
++.Lblocked_syscalls:
++	.word	18
++	.word	39
++	.word	40
++	.word	41
++	.word	42
++	.word	51
++	.word	58
++	.word	89
++	.word	97
++	.word	100
++	.word	104
++	.word	105
++	.word	106
++	.word	112
++	.word	142
++	.word	143
++	.word	145
++	.word	151
++	.word	152
++	.word	162
++	.word	171
++	.word	180
++	.word	181
++	.word	182
++	.word	183
++	.word	184
++	.word	185
++	.word	186
++	.word	188
++	.word	189
++	.word	190
++	.word	192
++	.word	193
++	.word	196
++	.word	197
++	.word	217
++	.word	218
++	.word	219
++	.word	224
++	.word	225
++	.word	234
++	.word	236
++	.word	237
++	.word	238
++	.word	239
++	.word	244
++	.word	245
++	.word	246
++	.word	247
++	.word	248
++	.word	249
++	.word	250
++	.word	251
++	.word	252
++	.word	253
++	.word	254
++	.word	255
++	.word	256
++	.word	257
++	.word	258
++	.word	259
++	.word	262
++	.word	263
++	.word	264
++	.word	265
++	.word	266
++	.word	268
++	.word	272
++	.word	273
++	.word	280
++	.word	288
++	.word	289
++	.word	290
++	.word	292
++	.word	293
++	.word	294
++	.word	295
++	.word	296
++	.word	297
++	.word	298
++	.word	299
++	.word	300
++	.word	301
++	.word	302
++	.word	303
++	.word	304
++	.word	305
++	.word	306
++	.word	307
++	.word	308
++	.word	309
++	.word	310
++	.word	311
++	.word	312
++	.word	313
++	.word	314
++	.word	315
++	.word	316
++	.word	317
++	.word	318
++	.word	319
++	.word	320
++	.word	321
++	.word	322
++	.word	323
++	.word	324
++	.word	325
++	.word	326
++	.word	327
++	.word	328
++	.word	329
++	.word	330
++	.word	331
++	.word	332
++	.word	333
++	.word	334
++	.word	335
++	.word	336
++	.word	337
++	.word	338
++	.word	339
++	.word	340
++	.word	341
++	.word	342
++	.word	343
++	.word	344
++	.word	345
++	.word	346
++	.word	347
++	.word	348
++	.word	349
++	.word	350
++	.word	351
++	.word	352
++	.word	353
++	.word	354
++	.word	355
++	.word	356
++	.word	357
++	.word	358
++	.word	359
++	.word	360
++	.word	361
++	.word	362
++	.word	363
++	.word	364
++	.word	365
++	.word	366
++	.word	367
++	.word	368
++	.word	369
++	.word	370
++	.word	371
++	.word	372
++	.word	373
++	.word	374
++	.word	375
++	.word	376
++	.word	377
++	.word	378
++	.word	379
++	.word	380
++	.word	381
++	.word	382
++	.word	383
++	.word	384
++	.word	385
++	.word	386
++	.word	387
++	.word	388
++	.word	389
++	.word	390
++	.word	391
++	.word	392
++	.word	393
++	.word	394
++	.word	395
++	.word	396
++	.word	397
++	.word	398
++	.word	399
++	.word	400
++	.word	401
++	.word	402
++	.word	403
++	.word	404
++	.word	405
++	.word	406
++	.word	407
++	.word	408
++	.word	409
++	.word	410
++	.word	411
++	.word	412
++	.word	413
++	.word	414
++	.word	415
++	.word	416
++	.word	417
++	.word	418
++	.word	419
++	.word	420
++	.word	421
++	.word	422
++	.word	423
++	.word	426
++	.word	427
++	.word	428
++	.word	429
++	.word	430
++	.word	431
++	.word	432
++	.word	433
++	.word	435
++	.word	436
++	.word	437
++	.word	441
++	.word	442
++	.word	443
++	.word	444
++	.word	445
++	.word	446
++	.word	447
++	.word	448
++	.word	449
++	.word	450
++	.word	451
++	.word	452
++	.word	453
++	.word	454
++	.word	455
++	.word	456
++	.word	457
++	.word	458
++	.word	459
++	.word	460
++	.word	461
++	.word	462
++	.word	463
++	.word	464
++	.word	465
++	.word	466
++	.word	467
++	.word	468
++	.word	469
++	.word	470
++	.size	.Lblocked_syscalls, .-.Lblocked_syscalls

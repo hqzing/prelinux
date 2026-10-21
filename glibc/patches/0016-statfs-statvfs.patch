@@ -1,0 +1,76 @@
+diff --git a/sysdeps/unix/sysv/linux/statfs.c b/sysdeps/unix/sysv/linux/statfs.c
+index 53300634..b06da797 100644
+--- a/sysdeps/unix/sysv/linux/statfs.c
++++ b/sysdeps/unix/sysv/linux/statfs.c
+@@ -19,6 +19,7 @@
+ #include <time.h>
+ #include <sysdep.h>
+ #include <kernel_stat.h>
++#include <prelinux.h>
+ 
+ #if !STATFS_IS_STATFS64
+ 
+@@ -26,6 +27,7 @@
+ int
+ __statfs (const char *file, struct statfs *buf)
+ {
++  PRELINUX_TRANSLATE (file);
+   struct statfs64 buf64;
+   int rc = INLINE_SYSCALL_CALL (statfs64, file, sizeof (buf64), &buf64);
+   if (rc == 0)
+diff --git a/sysdeps/unix/sysv/linux/statfs64.c b/sysdeps/unix/sysv/linux/statfs64.c
+index 477dc125..0e3a8f49 100644
+--- a/sysdeps/unix/sysv/linux/statfs64.c
++++ b/sysdeps/unix/sysv/linux/statfs64.c
+@@ -21,6 +21,7 @@
+ #include <sys/statfs.h>
+ #include <sysdep.h>
+ #include <kernel_stat.h>
++#include <prelinux.h>
+ #undef __statfs
+ #undef statfs
+ 
+@@ -28,6 +29,7 @@
+ int
+ __statfs64 (const char *file, struct statfs64 *buf)
+ {
++  PRELINUX_TRANSLATE (file);
+ #ifdef __NR_statfs64
+   return INLINE_SYSCALL_CALL (statfs64, file, sizeof (*buf), buf);
+ #else
+diff --git a/sysdeps/unix/sysv/linux/statvfs.c b/sysdeps/unix/sysv/linux/statvfs.c
+index 724468c0..a015d2b1 100644
+--- a/sysdeps/unix/sysv/linux/statvfs.c
++++ b/sysdeps/unix/sysv/linux/statvfs.c
+@@ -20,11 +20,13 @@
+ #include <internal_statvfs.h>
+ #include <time.h>
+ #include <kernel_stat.h>
++#include <prelinux.h>
+ 
+ #if !STATFS_IS_STATFS64
+ int
+ __statvfs (const char *file, struct statvfs *buf)
+ {
++  PRELINUX_TRANSLATE (file);
+   struct statfs fsbuf;
+ 
+   /* Get as much information as possible from the system.  */
+diff --git a/sysdeps/unix/sysv/linux/statvfs64.c b/sysdeps/unix/sysv/linux/statvfs64.c
+index 561e916a..789e0007 100644
+--- a/sysdeps/unix/sysv/linux/statvfs64.c
++++ b/sysdeps/unix/sysv/linux/statvfs64.c
+@@ -23,11 +23,13 @@
+ #include <internal_statvfs.h>
+ #include <time.h>
+ #include <kernel_stat.h>
++#include <prelinux.h>
+ 
+ /* Return information about the filesystem on which FILE resides.  */
+ int
+ __statvfs64 (const char *file, struct statvfs64 *buf)
+ {
++  PRELINUX_TRANSLATE (file);
+   struct statfs64 fsbuf;
+   if (__statfs64 (file, &fsbuf) < 0)
+     return -1;

@@ -1,0 +1,17 @@
+--- a/sysdeps/unix/sysv/linux/fchmodat.c	2026-10-19 19:12:40.551506144 +0800
++++ b/sysdeps/unix/sysv/linux/fchmodat.c	2026-10-19 19:12:55.997767760 +0800
+@@ -106,7 +106,13 @@
+      the wrapper open "" and report ENOENT for a directory that exists.  */
+   if (flag & AT_EMPTY_PATH)
+     {
+-      int r = __fchmod (fd, mode);
++      int r;
++
++      /* AT_EMPTY_PATH is only meaningful with a real descriptor;
++	 __fd_to_filename below asserts on negative ones.  */
++      if (fd < 0)
++	return __set_errno (EBADF);
++      r = __fchmod (fd, mode);
+       if (r == 0)
+ 	return PRELINUX_SOFTEN_PRIV (r);
+       if (errno == EBADF || errno == EOPNOTSUPP || errno == EPERM)

@@ -1,0 +1,73 @@
+diff --git a/sysdeps/unix/sysv/linux/open64.c b/sysdeps/unix/sysv/linux/open64.c
+index f15a9210..5e606437 100644
+--- a/sysdeps/unix/sysv/linux/open64.c
++++ b/sysdeps/unix/sysv/linux/open64.c
+@@ -22,12 +22,14 @@
+ #include <stdarg.h>
+ #include <sysdep-cancel.h>
+ #include <shlib-compat.h>
++#include <prelinux.h>
+ 
+ /* Open FILE with access OFLAG.  If O_CREAT or O_TMPFILE is in OFLAG,
+    a third argument is the file protection.  */
+ int
+ __libc_open64 (const char *file, int oflag, ...)
+ {
++  PRELINUX_TRANSLATE (file);
+   int mode = 0;
+ 
+   if (__OPEN_NEEDS_MODE (oflag))
+diff --git a/sysdeps/unix/sysv/linux/open64_nocancel.c b/sysdeps/unix/sysv/linux/open64_nocancel.c
+index c6b6845c..02de9996 100644
+--- a/sysdeps/unix/sysv/linux/open64_nocancel.c
++++ b/sysdeps/unix/sysv/linux/open64_nocancel.c
+@@ -22,10 +22,12 @@
+ #include <stdarg.h>
+ 
+ #include <not-cancel.h>
++#include <prelinux.h>
+ 
+ int
+ __open64_nocancel (const char *file, int oflag, ...)
+ {
++  PRELINUX_TRANSLATE (file);
+   int mode = 0;
+ 
+   if (__OPEN_NEEDS_MODE (oflag))
+diff --git a/sysdeps/unix/sysv/linux/openat64.c b/sysdeps/unix/sysv/linux/openat64.c
+index 3bf6730c..5ad2bcaa 100644
+--- a/sysdeps/unix/sysv/linux/openat64.c
++++ b/sysdeps/unix/sysv/linux/openat64.c
+@@ -20,6 +20,7 @@
+ #include <stdarg.h>
+ 
+ #include <sysdep-cancel.h>
++#include <prelinux.h>
+ 
+ /* Open FILE with access OFLAG.  Interpret relative paths relative to
+    the directory associated with FD.  If OFLAG includes O_CREAT or
+@@ -27,6 +28,7 @@
+ int
+ __libc_openat64 (int fd, const char *file, int oflag, ...)
+ {
++  PRELINUX_TRANSLATE (file);
+   mode_t mode = 0;
+   if (__OPEN_NEEDS_MODE (oflag))
+     {
+diff --git a/sysdeps/unix/sysv/linux/openat64_nocancel.c b/sysdeps/unix/sysv/linux/openat64_nocancel.c
+index 4e1cbb29..5609b4d2 100644
+--- a/sysdeps/unix/sysv/linux/openat64_nocancel.c
++++ b/sysdeps/unix/sysv/linux/openat64_nocancel.c
+@@ -21,10 +21,12 @@
+ 
+ #include <sysdep-cancel.h>
+ #include <not-cancel.h>
++#include <prelinux.h>
+ 
+ int
+ __openat64_nocancel (int fd, const char *file, int oflag, ...)
+ {
++  PRELINUX_TRANSLATE (file);
+   mode_t mode = 0;
+   if (__OPEN_NEEDS_MODE (oflag))
+     {

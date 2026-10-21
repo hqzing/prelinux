@@ -1,0 +1,15 @@
+--- a/sysdeps/unix/sysv/linux/creat64.c
++++ b/sysdeps/unix/sysv/linux/creat64.c
+@@ -24,7 +24,11 @@
+ int
+ __creat64 (const char *file, mode_t mode)
+ {
+-#if defined __OFF_T_MATCHES_OFF64_T && defined __NR_creat
++/* PreLinux: never use the direct creat(2) (arches that have it, e.g.
++   x86_64): it would bypass the interception layer and escape the
++   instance.  Always route via __open64, which is translated.  */
++#if defined __OFF_T_MATCHES_OFF64_T && defined __NR_creat \
++    && !defined PRELINUX
+   return SYSCALL_CANCEL (creat, file, mode);
+ #else
+   /* We need to pass O_LARGEFILE.  */

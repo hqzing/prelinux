@@ -1,0 +1,99 @@
+--- a/src/main/archives.c	2026-10-19 12:06:24.773671650 +0800
++++ b/src/main/archives.c	2026-10-19 13:24:35.346287922 +0800
+@@ -105,6 +105,30 @@
+ 
+ #include <dpkg/db-fsys.h>
+ 
++/* PreLinux: HarmonyOS PC's home filesystem (hmdfs) is case-insensitive,
++ * so a package shipping two names that differ only in case (the Linux
++ * kernel headers do: xt_CONNMARK.h and xt_connmark.h) keeps just one of
++ * them, and the deferred rename of the other fails with ENOENT because
++ * the .dpkg-new it expected was the same directory entry.  Treat
++ * "source gone but destination present" as that collision: warn and
++ * keep whichever copy landed instead of aborting the transaction. */
++static int
++prelinux_rename_ci(const char *oldname, const char *newname,
++                   const char *dispname)
++{
++	struct stat cist;
++
++	if (rename(oldname, newname) == 0)
++		return 0;
++	if (errno == ENOENT && lstat(newname, &cist) == 0) {
++		warning(_("case-insensitive filesystem: '%.255s' collides with a "
++		          "file differing only in case; keeping the extracted "
++		          "copy"), dispname);
++		return 0;
++	}
++	return -1;
++}
++
+ #include "main.h"
+ #include "archives.h"
+ #include "filters.h"
+@@ -1182,7 +1206,7 @@
+ 
+     debug(dbg_eachfiledetail, "tarobject done and installation deferred");
+   } else {
+-    if (rename(fnamenewvb.buf, fnamevb.buf))
++    if (prelinux_rename_ci(fnamenewvb.buf, fnamevb.buf, ti->name))
+       ohshite(_("unable to install new version of '%.255s'"), ti->name);
+ 
+     /*
+@@ -1272,7 +1296,8 @@
+ 
+     debug(dbg_eachfiledetail, "deferred extract needs rename");
+ 
+-    if (rename(fnamenewvb.buf, fnamevb.buf))
++    if (prelinux_rename_ci(fnamenewvb.buf, fnamevb.buf,
++                           cfile->namenode->name))
+       ohshite(_("unable to install new version of '%.255s'"),
+               cfile->namenode->name);
+ 
+--- a/src/main/archives.c
++++ b/src/main/archives.c	2026-10-19 19:08:12.466964524 +0800
+@@ -1298,6 +1298,14 @@
+     setupfnamevbs(usenode->name);
+ 
+     fd = open(fnamenewvb.buf, O_WRONLY);
++    if (fd < 0 && errno == ENOENT) {
++      /* PreLinux: a case-insensitive filesystem merged this file with a
++       * name that differs only in case; the surviving copy is already in
++       * place and there is nothing left to sync. */
++      warning(_("case-insensitive filesystem: skipping fsync of '%.255s'"),
++              fnamenewvb.buf);
++      continue;
++    }
+     if (fd < 0)
+       ohshite(_("unable to open '%.255s'"), fnamenewvb.buf);
+     /* Ignore the return code as it should be considered equivalent to an
+@@ -1339,14 +1347,22 @@
+       debug(dbg_eachfiledetail, "deferred extract needs fsync");
+ 
+       fd = open(fnamenewvb.buf, O_WRONLY);
+-      if (fd < 0)
+-        ohshite(_("unable to open '%.255s'"), fnamenewvb.buf);
+-      if (fsync(fd))
+-        ohshite(_("unable to sync file '%.255s'"), fnamenewvb.buf);
+-      if (close(fd))
+-        ohshite(_("error closing/writing '%.255s'"), fnamenewvb.buf);
++      if (fd < 0 && errno == ENOENT) {
++        /* PreLinux: consumed by a case-insensitive collision; the rename
++         * below tolerates that case. */
++        warning(_("case-insensitive filesystem: skipping fsync of '%.255s'"),
++                fnamenewvb.buf);
++        cfile->namenode->flags &= ~FNNF_DEFERRED_FSYNC;
++      } else {
++        if (fd < 0)
++          ohshite(_("unable to open '%.255s'"), fnamenewvb.buf);
++        if (fsync(fd))
++          ohshite(_("unable to sync file '%.255s'"), fnamenewvb.buf);
++        if (close(fd))
++          ohshite(_("error closing/writing '%.255s'"), fnamenewvb.buf);
+ 
+-      cfile->namenode->flags &= ~FNNF_DEFERRED_FSYNC;
++        cfile->namenode->flags &= ~FNNF_DEFERRED_FSYNC;
++      }
+     }
+ 
+     debug(dbg_eachfiledetail, "deferred extract needs rename");

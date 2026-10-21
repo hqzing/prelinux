@@ -1,0 +1,243 @@
+diff --git a/sysdeps/unix/sysv/linux/chmod.c b/sysdeps/unix/sysv/linux/chmod.c
+index 2743fb5b..e729edf0 100644
+--- a/sysdeps/unix/sysv/linux/chmod.c
++++ b/sysdeps/unix/sysv/linux/chmod.c
+@@ -18,15 +18,18 @@
+ 
+ #include <fcntl.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ /* Change the protections of FILE to MODE.  */
+ int
+ __chmod (const char *file, mode_t mode)
+ {
++  PRELINUX_TRANSLATE (file);
+ #ifdef __NR_chmod
+-  return INLINE_SYSCALL_CALL (chmod, file, mode);
++  return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (chmod, file, mode));
+ #else
+-  return INLINE_SYSCALL_CALL (fchmodat, AT_FDCWD, file, mode);
++  return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (fchmodat, AT_FDCWD,
++						      file, mode));
+ #endif
+ }
+ 
+diff --git a/sysdeps/unix/sysv/linux/chown.c b/sysdeps/unix/sysv/linux/chown.c
+index f1c7b8ab..9ead79c3 100644
+--- a/sysdeps/unix/sysv/linux/chown.c
++++ b/sysdeps/unix/sysv/linux/chown.c
+@@ -19,15 +19,19 @@
+ #include <unistd.h>
+ #include <fcntl.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ /* Change the owner and group of FILE.  */
+ int
+ __chown (const char *file, uid_t owner, gid_t group)
+ {
++  PRELINUX_TRANSLATE (file);
+ #ifdef __NR_chown
+-  return INLINE_SYSCALL_CALL (chown, file, owner, groups);
++  return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (chown, file, owner,
++						      group));
+ #else
+-  return INLINE_SYSCALL_CALL (fchownat, AT_FDCWD, file, owner, group, 0);
++  return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (fchownat, AT_FDCWD,
++						      file, owner, group, 0));
+ #endif
+ }
+ libc_hidden_def (__chown)
+diff --git a/sysdeps/unix/sysv/linux/fchmod.c b/sysdeps/unix/sysv/linux/fchmod.c
+new file mode 100644
+index 00000000..a4ddf725
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/fchmod.c
+@@ -0,0 +1,14 @@
++/* Change mode of an open file.  PreLinux version: replaces the wrapper
++   generated from sysdeps/unix/syscalls.list, adding the privilege
++   softening (EPERM for non-root euid pretends success).  */
++#include <sys/stat.h>
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++__fchmod (int fd, mode_t mode)
++{
++  return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (fchmod, fd, mode));
++}
++weak_alias (__fchmod, fchmod)
+diff --git a/sysdeps/unix/sysv/linux/fchmodat.c b/sysdeps/unix/sysv/linux/fchmodat.c
+index dad2e120..45b15e28 100644
+--- a/sysdeps/unix/sysv/linux/fchmodat.c
++++ b/sysdeps/unix/sysv/linux/fchmodat.c
+@@ -25,6 +25,7 @@
+ #include <sys/types.h>
+ #include <sysdep.h>
+ #include <unistd.h>
++#include <prelinux.h>
+ 
+ #if !__ASSUME_FCHMODAT2
+ static int
+@@ -90,11 +91,14 @@ fchmodat_fallback (int fd, const char *file, mode_t mode, int flag)
+ int
+ fchmodat (int fd, const char *file, mode_t mode, int flag)
+ {
++  PRELINUX_TRANSLATE (file);
+ #if __ASSUME_FCHMODAT2
+-  return INLINE_SYSCALL_CALL (fchmodat2, fd, file, mode, flag);
++  return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (fchmodat2, fd, file,
++						      mode, flag));
+ #else
+   if (flag == 0)
+-    return INLINE_SYSCALL_CALL (fchmodat, fd, file, mode);
++    return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (fchmodat, fd, file,
++						        mode));
+ 
+   int r = INLINE_SYSCALL_CALL (fchmodat2, fd, file, mode, flag);
+   if (r != 0 && errno == ENOSYS)
+diff --git a/sysdeps/unix/sysv/linux/fchown.c b/sysdeps/unix/sysv/linux/fchown.c
+new file mode 100644
+index 00000000..a1afcff5
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/fchown.c
+@@ -0,0 +1,13 @@
++/* Change ownership of an open file.  PreLinux version: replaces the
++   wrapper generated from sysdeps/unix/syscalls.list, adding privilege
++   softening .  */
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++__fchown (int fd, uid_t owner, gid_t group)
++{
++  return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (fchown, fd, owner, group));
++}
++weak_alias (__fchown, fchown)
+diff --git a/sysdeps/unix/sysv/linux/fchownat.c b/sysdeps/unix/sysv/linux/fchownat.c
+new file mode 100644
+index 00000000..5314f8e9
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/fchownat.c
+@@ -0,0 +1,14 @@
++/* Change ownership of a file, relative to a directory.  PreLinux
++   version: replaces the wrapper generated from syscalls.list, adding
++   path translation and privilege softening .  */
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++fchownat (int fd, const char *file, uid_t owner, gid_t group, int flag)
++{
++  PRELINUX_TRANSLATE (file);
++  return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (fchownat, fd, file,
++						    owner, group, flag));
++}
+diff --git a/sysdeps/unix/sysv/linux/lchown.c b/sysdeps/unix/sysv/linux/lchown.c
+index c4699edc..c0ce45f4 100644
+--- a/sysdeps/unix/sysv/linux/lchown.c
++++ b/sysdeps/unix/sysv/linux/lchown.c
+@@ -19,16 +19,20 @@
+ #include <unistd.h>
+ #include <fcntl.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ /* Change the owner and group of FILE.  */
+ int
+ __lchown (const char *file, uid_t owner, gid_t group)
+ {
++  PRELINUX_TRANSLATE (file);
+ #ifdef __NR_lchown
+-  return INLINE_SYSCALL_CALL (lchown, file, owner, group);
++  return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (lchown, file, owner,
++						      group));
+ #else
+-  return INLINE_SYSCALL_CALL (fchownat, AT_FDCWD, file, owner, group,
+-			      AT_SYMLINK_NOFOLLOW);
++  return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (fchownat, AT_FDCWD,
++						      file, owner, group,
++						      AT_SYMLINK_NOFOLLOW));
+ #endif
+ }
+ weak_alias (__lchown, lchown)
+diff --git a/sysdeps/unix/sysv/linux/mknodat.c b/sysdeps/unix/sysv/linux/mknodat.c
+index 8e350e25..dfbc3e34 100644
+--- a/sysdeps/unix/sysv/linux/mknodat.c
++++ b/sysdeps/unix/sysv/linux/mknodat.c
+@@ -20,10 +20,12 @@
+ #include <sys/stat.h>
+ #include <errno.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ int
+ __mknodat (int fd, const char *path, mode_t mode, dev_t dev)
+ {
++  PRELINUX_TRANSLATE (path);
+   /* The user-exported dev_t is 64-bit while the kernel interface is
+      32-bit.  */
+   unsigned int k_dev = dev;
+diff --git a/sysdeps/unix/sysv/linux/truncate.c b/sysdeps/unix/sysv/linux/truncate.c
+index 1e5e718f..edb12bbc 100644
+--- a/sysdeps/unix/sysv/linux/truncate.c
++++ b/sysdeps/unix/sysv/linux/truncate.c
+@@ -18,12 +18,14 @@
+ #include <unistd.h>
+ #include <sysdep.h>
+ #include <errno.h>
++#include <prelinux.h>
+ 
+ #ifndef __OFF_T_MATCHES_OFF64_T
+ /* Truncate PATH to LENGTH bytes.  */
+ int
+ __truncate (const char *path, off_t length)
+ {
++  PRELINUX_TRANSLATE (path);
+ # ifndef __NR_truncate
+   return INLINE_SYSCALL_CALL (truncate64, path,
+ 			      __ALIGNMENT_ARG SYSCALL_LL (length));
+diff --git a/sysdeps/unix/sysv/linux/truncate64.c b/sysdeps/unix/sysv/linux/truncate64.c
+index 41b469bd..151c4b76 100644
+--- a/sysdeps/unix/sysv/linux/truncate64.c
++++ b/sysdeps/unix/sysv/linux/truncate64.c
+@@ -17,6 +17,7 @@
+ 
+ #include <unistd.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ #ifndef __NR_truncate64
+ # define __NR_truncate64 __NR_truncate
+@@ -26,6 +27,7 @@
+ int
+ __truncate64 (const char *path, off64_t length)
+ {
++  PRELINUX_TRANSLATE (path);
+   return INLINE_SYSCALL_CALL (truncate64, path,
+ 			      __ALIGNMENT_ARG SYSCALL_LL64 (length));
+ }
+diff --git a/sysdeps/unix/sysv/linux/utimensat.c b/sysdeps/unix/sysv/linux/utimensat.c
+index 991897f5..29259c0e 100644
+--- a/sysdeps/unix/sysv/linux/utimensat.c
++++ b/sysdeps/unix/sysv/linux/utimensat.c
+@@ -21,6 +21,7 @@
+ #include <sysdep.h>
+ #include <time.h>
+ #include <kernel-features.h>
++#include <prelinux.h>
+ 
+ /* Helper function defined for easy reusage of the code which calls utimensat
+    and utimensat_time64 syscall.  */
+@@ -28,6 +29,7 @@ int
+ __utimensat64_helper (int fd, const char *file,
+                       const struct __timespec64 tsp64[2], int flags)
+ {
++  PRELINUX_TRANSLATE (file);
+ #ifndef __NR_utimensat_time64
+ # define __NR_utimensat_time64 __NR_utimensat
+ #endif

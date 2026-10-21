@@ -1,0 +1,213 @@
+diff --git a/sysdeps/unix/sysv/linux/link.c b/sysdeps/unix/sysv/linux/link.c
+index 3dfc7c86..eb94bea7 100644
+--- a/sysdeps/unix/sysv/linux/link.c
++++ b/sysdeps/unix/sysv/linux/link.c
+@@ -19,11 +19,14 @@
+ #include <unistd.h>
+ #include <fcntl.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ /* Make a link to FROM called TO.  */
+ int
+ __link (const char *from, const char *to)
+ {
++  PRELINUX_TRANSLATE (from);
++  PRELINUX_TRANSLATE (to);
+ #ifdef __NR_link
+   return INLINE_SYSCALL_CALL (link, from, to);
+ #else
+diff --git a/sysdeps/unix/sysv/linux/linkat.c b/sysdeps/unix/sysv/linux/linkat.c
+new file mode 100644
+index 00000000..10b54fc2
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/linkat.c
+@@ -0,0 +1,13 @@
++/* Make a link, relative to directories.  PreLinux version: replaces the
++   wrapper generated from syscalls.list.  */
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++linkat (int fromfd, const char *from, int tofd, const char *to, int flags)
++{
++  PRELINUX_TRANSLATE (from);
++  PRELINUX_TRANSLATE (to);
++  return INLINE_SYSCALL_CALL (linkat, fromfd, from, tofd, to, flags);
++}
+diff --git a/sysdeps/unix/sysv/linux/readlink.c b/sysdeps/unix/sysv/linux/readlink.c
+index bb75d204..e3831f1e 100644
+--- a/sysdeps/unix/sysv/linux/readlink.c
++++ b/sysdeps/unix/sysv/linux/readlink.c
+@@ -19,6 +19,7 @@
+ #include <unistd.h>
+ #include <fcntl.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ /* Read the contents of the symbolic link PATH into no more than
+    LEN bytes of BUF.  The contents are not null-terminated.
+@@ -26,6 +27,7 @@
+ ssize_t
+ __readlink (const char *path, char *buf, size_t len)
+ {
++  PRELINUX_TRANSLATE (path);
+ #ifdef __NR_readlink
+   return INLINE_SYSCALL_CALL (readlink, path, buf, len);
+ #else
+diff --git a/sysdeps/unix/sysv/linux/readlinkat.c b/sysdeps/unix/sysv/linux/readlinkat.c
+new file mode 100644
+index 00000000..c99d5894
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/readlinkat.c
+@@ -0,0 +1,16 @@
++/* Read a symlink, relative to a directory.  PreLinux version: replaces
++   the wrapper generated from syscalls.list (generated wrappers cannot
++   be patched).  Note: <unistd.h> declares readlinkat via hidden_proto,
++   so in this TU the function compiles as hidden __GI_readlinkat and
++   libc_hidden_def publishes the public alias.  */
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++ssize_t
++readlinkat (int fd, const char *path, char *buf, size_t len)
++{
++  PRELINUX_TRANSLATE (path);
++  return INLINE_SYSCALL_CALL (readlinkat, fd, path, buf, len);
++}
++libc_hidden_def (readlinkat)
+diff --git a/sysdeps/unix/sysv/linux/rename.c b/sysdeps/unix/sysv/linux/rename.c
+index 583dcd48..3f11c4fd 100644
+--- a/sysdeps/unix/sysv/linux/rename.c
++++ b/sysdeps/unix/sysv/linux/rename.c
+@@ -20,11 +20,14 @@
+ #include <fcntl.h>
+ #include <sysdep.h>
+ #include <errno.h>
++#include <prelinux.h>
+ 
+ /* Rename the file OLD to NEW.  */
+ int
+ rename (const char *old, const char *new)
+ {
++  PRELINUX_TRANSLATE (old);
++  PRELINUX_TRANSLATE (new);
+ #if defined (__NR_rename)
+   return INLINE_SYSCALL_CALL (rename, old, new);
+ #elif defined (__NR_renameat)
+diff --git a/sysdeps/unix/sysv/linux/renameat.c b/sysdeps/unix/sysv/linux/renameat.c
+index c9a014dd..38d505e2 100644
+--- a/sysdeps/unix/sysv/linux/renameat.c
++++ b/sysdeps/unix/sysv/linux/renameat.c
+@@ -20,10 +20,13 @@
+ #include <fcntl.h>
+ #include <sysdep.h>
+ #include <errno.h>
++#include <prelinux.h>
+ 
+ int
+ __renameat (int oldfd, const char *old, int newfd, const char *new)
+ {
++  PRELINUX_TRANSLATE (old);
++  PRELINUX_TRANSLATE (new);
+ #ifdef __NR_renameat
+   return INLINE_SYSCALL_CALL (renameat, oldfd, old, newfd, new);
+ #else
+diff --git a/sysdeps/unix/sysv/linux/renameat2.c b/sysdeps/unix/sysv/linux/renameat2.c
+index 0d08eca0..e018b297 100644
+--- a/sysdeps/unix/sysv/linux/renameat2.c
++++ b/sysdeps/unix/sysv/linux/renameat2.c
+@@ -19,11 +19,14 @@
+ #include <errno.h>
+ #include <stdio.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ int
+ __renameat2 (int oldfd, const char *old, int newfd, const char *new,
+            unsigned int flags)
+ {
++  PRELINUX_TRANSLATE (old);
++  PRELINUX_TRANSLATE (new);
+ #if !defined (__NR_renameat) || defined (__ASSUME_RENAMEAT2)
+   return INLINE_SYSCALL_CALL (renameat2, oldfd, old, newfd, new, flags);
+ #else
+diff --git a/sysdeps/unix/sysv/linux/symlink.c b/sysdeps/unix/sysv/linux/symlink.c
+index 8fe2c88e..971a7f70 100644
+--- a/sysdeps/unix/sysv/linux/symlink.c
++++ b/sysdeps/unix/sysv/linux/symlink.c
+@@ -19,11 +19,14 @@
+ #include <unistd.h>
+ #include <fcntl.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ /* Make a link to FROM called TO.  */
+ int
+ __symlink (const char *from, const char *to)
+ {
++  PRELINUX_TRANSLATE (from);
++  PRELINUX_TRANSLATE (to);
+ #ifdef __NR_symlink
+   return INLINE_SYSCALL_CALL (symlink, from, to);
+ #else
+diff --git a/sysdeps/unix/sysv/linux/symlinkat.c b/sysdeps/unix/sysv/linux/symlinkat.c
+new file mode 100644
+index 00000000..80aa8f1a
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/symlinkat.c
+@@ -0,0 +1,15 @@
++/* Make a symlink, relative to a directory.  PreLinux version: replaces
++   the wrapper generated from syscalls.list.  An absolute link target is
++   translated too, so links stay self-consistent inside the instance.  */
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++__symlinkat (const char *from, int fd, const char *to)
++{
++  PRELINUX_TRANSLATE (from);
++  PRELINUX_TRANSLATE (to);
++  return INLINE_SYSCALL_CALL (symlinkat, from, fd, to);
++}
++weak_alias (__symlinkat, symlinkat)
+diff --git a/sysdeps/unix/sysv/linux/unlink.c b/sysdeps/unix/sysv/linux/unlink.c
+index 932cfcfb..0c9345bd 100644
+--- a/sysdeps/unix/sysv/linux/unlink.c
++++ b/sysdeps/unix/sysv/linux/unlink.c
+@@ -19,11 +19,13 @@
+ #include <unistd.h>
+ #include <fcntl.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ /* Remove the link named NAME.  */
+ int
+ __unlink (const char *name)
+ {
++  PRELINUX_TRANSLATE (name);
+ #ifdef __NR_unlink
+   return INLINE_SYSCALL_CALL (unlink, name);
+ #else
+diff --git a/sysdeps/unix/sysv/linux/unlinkat.c b/sysdeps/unix/sysv/linux/unlinkat.c
+new file mode 100644
+index 00000000..f03403a6
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/unlinkat.c
+@@ -0,0 +1,13 @@
++/* Remove a file or directory, relative to a directory.  PreLinux
++   version: replaces the wrapper generated from syscalls.list.  */
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++__unlinkat (int fd, const char *name, int flag)
++{
++  PRELINUX_TRANSLATE (name);
++  return INLINE_SYSCALL_CALL (unlinkat, fd, name, flag);
++}
++weak_alias (__unlinkat, unlinkat)

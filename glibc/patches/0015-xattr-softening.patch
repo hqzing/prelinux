@@ -1,0 +1,85 @@
+diff --git a/sysdeps/unix/sysv/linux/fsetxattr.c b/sysdeps/unix/sysv/linux/fsetxattr.c
+new file mode 100644
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/fsetxattr.c
+@@ -0,0 +1,20 @@
++/* Set an extended attribute on an open file.  PreLinux version:
++   replaces the wrapper generated from syscalls.list.  See setxattr.c
++   for why EPERM becomes EOPNOTSUPP.  */
++#include <errno.h>
++#include <sys/xattr.h>
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++fsetxattr (int fd, const char *name, const void *value, size_t size,
++	   int flags)
++{
++  int r = INLINE_SYSCALL_CALL (fsetxattr, fd, name, value, size, flags);
++#ifdef PRELINUX
++  if (r == -1 && errno == EPERM)
++    __set_errno (EOPNOTSUPP);
++#endif
++  return r;
++}
+
+diff --git a/sysdeps/unix/sysv/linux/lsetxattr.c b/sysdeps/unix/sysv/linux/lsetxattr.c
+new file mode 100644
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/lsetxattr.c
+@@ -0,0 +1,22 @@
++/* Set an extended attribute on a symlink itself.  PreLinux version:
++   replaces the wrapper generated from syscalls.list.  See setxattr.c
++   for why EPERM becomes EOPNOTSUPP.  */
++#include <errno.h>
++#include <sys/xattr.h>
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++lsetxattr (const char *path, const char *name, const void *value,
++	   size_t size, int flags)
++{
++  int r;
++  PRELINUX_TRANSLATE (path);
++  r = INLINE_SYSCALL_CALL (lsetxattr, path, name, value, size, flags);
++#ifdef PRELINUX
++  if (r == -1 && errno == EPERM)
++    __set_errno (EOPNOTSUPP);
++#endif
++  return r;
++}
+
+diff --git a/sysdeps/unix/sysv/linux/setxattr.c b/sysdeps/unix/sysv/linux/setxattr.c
+new file mode 100644
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/setxattr.c
+@@ -0,0 +1,25 @@
++/* Set an extended attribute.  PreLinux version: replaces the wrapper
++   generated from syscalls.list, adding path translation.  hmdfs on
++   HarmonyOS PC has no xattr support and answers EPERM; report that as
++   EOPNOTSUPP so ACL-aware callers (cp -a, rsync -a) fall back to chmod
++   instead of believing the attributes were applied and then failing
++   with "preserving permissions" .  */
++#include <errno.h>
++#include <sys/xattr.h>
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++setxattr (const char *path, const char *name, const void *value,
++	  size_t size, int flags)
++{
++  int r;
++  PRELINUX_TRANSLATE (path);
++  r = INLINE_SYSCALL_CALL (setxattr, path, name, value, size, flags);
++#ifdef PRELINUX
++  if (r == -1 && errno == EPERM)
++    __set_errno (EOPNOTSUPP);
++#endif
++  return r;
++}
+

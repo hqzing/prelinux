@@ -1,0 +1,51 @@
+diff -ruN -x fchmodat.c glibc-19/sysdeps/unix/sysv/linux/listxattr.c glibc-20/sysdeps/unix/sysv/linux/listxattr.c
+--- a/sysdeps/unix/sysv/linux/listxattr.c	1970-01-01 08:00:00.000000000 +0800
++++ b/sysdeps/unix/sysv/linux/listxattr.c	2026-10-19 19:12:55.996767743 +0800
+@@ -0,0 +1,13 @@
++/* List extended attribute names.  PreLinux version: see llistxattr.c.  */
++#include <errno.h>
++#include <sys/xattr.h>
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++ssize_t
++listxattr (const char *path, char *list, size_t size)
++{
++  PRELINUX_TRANSLATE (path);
++  return INLINE_SYSCALL_CALL (listxattr, path, list, size);
++}
+diff -ruN -x fchmodat.c glibc-19/sysdeps/unix/sysv/linux/llistxattr.c glibc-20/sysdeps/unix/sysv/linux/llistxattr.c
+--- a/sysdeps/unix/sysv/linux/llistxattr.c	1970-01-01 08:00:00.000000000 +0800
++++ b/sysdeps/unix/sysv/linux/llistxattr.c	2026-10-19 19:12:55.996767743 +0800
+@@ -0,0 +1,18 @@
++/* List extended attribute names of a symlink itself.  PreLinux version:
++   replaces the wrapper generated from syscalls.list.  The kernel needs the
++   translated path, otherwise the raw "/etc/..." resolves against the host
++   root and reports ENOENT for files that exist in the instance; gnulib's
++   copy_attr then aborts cp -a with "preserving ... No such file or
++   directory".  */
++#include <errno.h>
++#include <sys/xattr.h>
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++ssize_t
++llistxattr (const char *path, char *list, size_t size)
++{
++  PRELINUX_TRANSLATE (path);
++  return INLINE_SYSCALL_CALL (llistxattr, path, list, size);
++}
+diff -ruN -x fchmodat.c glibc-19/sysdeps/unix/sysv/linux/syscalls.list glibc-20/sysdeps/unix/sysv/linux/syscalls.list
+--- a/sysdeps/unix/sysv/linux/syscalls.list	2026-10-19 19:12:40.554506195 +0800
++++ b/sysdeps/unix/sysv/linux/syscalls.list	2026-10-19 19:12:55.997767760 +0800
+@@ -65,8 +65,6 @@
+ 
+ 
+ 
+-listxattr	-	listxattr	i:ssU	listxattr
+-llistxattr	-	llistxattr	i:ssU	llistxattr
+ flistxattr	-	flistxattr	i:isU	flistxattr
+ removexattr	-	removexattr	i:ss	removexattr
+ lremovexattr	-	lremovexattr	i:ss	lremovexattr

@@ -1,0 +1,96 @@
+diff --git a/sysdeps/unix/sysv/linux/chdir.c b/sysdeps/unix/sysv/linux/chdir.c
+new file mode 100644
+index 00000000..b7ef6667
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/chdir.c
+@@ -0,0 +1,15 @@
++/* Change the current working directory.  PreLinux version: replaces the
++   wrapper generated from sysdeps/unix/syscalls.list (generated wrappers
++   cannot be patched).  Without -DPRELINUX this compiles to the same
++   behavior as the generated wrapper.  */
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++__chdir (const char *path)
++{
++  PRELINUX_TRANSLATE (path);
++  return INLINE_SYSCALL_CALL (chdir, path);
++}
++weak_alias (__chdir, chdir)
+diff --git a/sysdeps/unix/sysv/linux/chroot.c b/sysdeps/unix/sysv/linux/chroot.c
+new file mode 100644
+index 00000000..1d6e7081
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/chroot.c
+@@ -0,0 +1,14 @@
++/* Change the root directory.  PreLinux version: replaces the wrapper
++   generated from sysdeps/unix/syscalls.list.  The path is translated
++   and then passed through to the kernel as-is: no privileges are
++   faked, a non-root caller still gets EPERM .  */
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++chroot (const char *path)
++{
++  PRELINUX_TRANSLATE (path);
++  return INLINE_SYSCALL_CALL (chroot, path);
++}
+diff --git a/sysdeps/unix/sysv/linux/mkdir.c b/sysdeps/unix/sysv/linux/mkdir.c
+index fbab0a91..25368fdf 100644
+--- a/sysdeps/unix/sysv/linux/mkdir.c
++++ b/sysdeps/unix/sysv/linux/mkdir.c
+@@ -19,11 +19,13 @@
+ #include <fcntl.h>
+ #include <sys/stat.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ /* Create a directory named PATH with protections MODE.  */
+ int
+ __mkdir (const char *path, mode_t mode)
+ {
++  PRELINUX_TRANSLATE (path);
+ #ifdef __NR_mkdir
+   return INLINE_SYSCALL_CALL (mkdir,  path, mode);
+ #else
+diff --git a/sysdeps/unix/sysv/linux/mkdirat.c b/sysdeps/unix/sysv/linux/mkdirat.c
+new file mode 100644
+index 00000000..3c80a57f
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/mkdirat.c
+@@ -0,0 +1,13 @@
++/* Create a directory, relative to a directory.  PreLinux version:
++   replaces the wrapper generated from syscalls.list.  */
++#include <sys/stat.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++__mkdirat (int fd, const char *path, mode_t mode)
++{
++  PRELINUX_TRANSLATE (path);
++  return INLINE_SYSCALL_CALL (mkdirat, fd, path, mode);
++}
++weak_alias (__mkdirat, mkdirat)
+diff --git a/sysdeps/unix/sysv/linux/rmdir.c b/sysdeps/unix/sysv/linux/rmdir.c
+index fba4bdac..7be0130a 100644
+--- a/sysdeps/unix/sysv/linux/rmdir.c
++++ b/sysdeps/unix/sysv/linux/rmdir.c
+@@ -19,11 +19,13 @@
+ #include <unistd.h>
+ #include <fcntl.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ /* Remove the directory PATH.  */
+ int
+ __rmdir (const char *path)
+ {
++  PRELINUX_TRANSLATE (path);
+ #ifdef __NR_rmdir
+   return INLINE_SYSCALL_CALL (rmdir, path);
+ #else

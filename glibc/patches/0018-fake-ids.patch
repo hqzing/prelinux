@@ -1,0 +1,487 @@
+--- a/include/prelinux.h
++++ b/include/prelinux.h
+@@ -7,6 +7,20 @@
+ 
+ #ifdef PRELINUX
+ # include <prelinux-translate.h>
++
++/* PreLinux id state: instance processes report a fake uid/gid;
++   privilege drops and regains update this per-process state
++   so verification reads (apt's DropPrivileges) stay consistent.
++   The kernel credentials are never touched.  */
++# include <sys/types.h>
++enum
++  {
++    PRELINUX_RUID, PRELINUX_EUID, PRELINUX_SUID,
++    PRELINUX_RGID, PRELINUX_EGID, PRELINUX_SGID
++  };
++extern uid_t __prelinux_cred_ids[6] __attribute__ ((visibility ("hidden")));
++extern gid_t __prelinux_cred_groups[256] __attribute__ ((visibility ("hidden")));
++extern int __prelinux_cred_ngroups __attribute__ ((visibility ("hidden")));
+ #else
+ # define PRELINUX_TRANSLATE(path) do { } while (0)
+ # define PRELINUX_SOFTEN_PRIV(ret) (ret)
+--- a/sysdeps/unix/syscalls.list
++++ b/sysdeps/unix/syscalls.list
+@@ -19,8 +19,6 @@
+ fstatfs		-	fstatfs		i:ip	__fstatfs	fstatfs
+ ftruncate	-	ftruncate	i:ii	__ftruncate	ftruncate
+ getdomain	-	getdomainname	i:si	getdomainname
+-getgid		-	getgid		Ei:	__getgid	getgid
+-getgroups	-	getgroups	i:ip	__getgroups	getgroups
+ gethostid	-	gethostid	i:	gethostid
+ gethostname	-	gethostname	i:bn	__gethostname	gethostname
+ getpeername	-	getpeername	i:ibN	__getpeername	getpeername
+@@ -29,7 +27,6 @@
+ getrlimit	-	getrlimit	i:ip	__getrlimit	getrlimit
+ getsockname	-	getsockname	i:ibN	__getsockname	getsockname
+ getsockopt	-	getsockopt	i:iiiBN	getsockopt
+-getuid		-	getuid		Ei:	__getuid	getuid
+ ioctl		-	ioctl		i:iiI	__ioctl		ioctl __ioctl_time64
+ kill		-	kill		i:ii	__kill		kill
+ link		-	link		i:ss	__link		link
+--- a/sysdeps/unix/sysv/linux/syscalls.list
++++ b/sysdeps/unix/sysv/linux/syscalls.list
+@@ -16,13 +16,9 @@
+ fspick		EXTRA	fspick		i:isU	fspick
+ get_kernel_syms	EXTRA	get_kernel_syms	i:p	__compat_get_kernel_syms	get_kernel_syms@GLIBC_2.0:GLIBC_2.23
+ getpid          -       getpid          Ei:     __getpid        getpid
+-getegid		-	getegid		Ei:	__getegid	getegid
+-geteuid		-	geteuid		Ei:	__geteuid	geteuid
+ getpgid		-	getpgid		i:i	__getpgid	getpgid
+ getpgrp		-	getpgrp		Ei:	getpgrp
+ getppid		-	getppid		Ei:	__getppid	getppid
+-getresuid	-	getresuid	i:ppp	getresuid
+-getresgid	-	getresgid	i:ppp	getresgid
+ getsid		-	getsid		i:i	getsid
+ init_module	EXTRA	init_module	5	init_module
+ inotify_add_watch	EXTRA	inotify_add_watch	i:isi	inotify_add_watch
+--- a/sysdeps/unix/sysv/linux/setuid.c
++++ b/sysdeps/unix/sysv/linux/setuid.c
+@@ -18,15 +18,25 @@
+ #include <errno.h>
+ #include <unistd.h>
+ #include <setxid.h>
++#include <prelinux.h>
+ 
+ int
+ __setuid (uid_t uid)
+ {
++#ifdef PRELINUX
++  if (__prelinux_cred_ids[PRELINUX_EUID] == 0)
++    __prelinux_cred_ids[PRELINUX_RUID] = __prelinux_cred_ids[PRELINUX_EUID]
++      = __prelinux_cred_ids[PRELINUX_SUID] = uid;
++  else
++    __prelinux_cred_ids[PRELINUX_EUID] = uid;
++  return 0;
++#else
+ #ifdef __NR_setuid32
+   return INLINE_SETXID_SYSCALL (setuid32, 1, uid);
+ #else
+   return INLINE_SETXID_SYSCALL (setuid, 1, uid);
+ #endif
++#endif
+ }
+ #ifndef __setuid
+ weak_alias (__setuid, setuid)
+--- a/sysdeps/unix/sysv/linux/setgid.c
++++ b/sysdeps/unix/sysv/linux/setgid.c
+@@ -18,16 +18,26 @@
+ #include <errno.h>
+ #include <unistd.h>
+ #include <setxid.h>
++#include <prelinux.h>
+ 
+ 
+ int
+ __setgid (gid_t gid)
+ {
++#ifdef PRELINUX
++  if (__prelinux_cred_ids[PRELINUX_EGID] == 0)
++    __prelinux_cred_ids[PRELINUX_RGID] = __prelinux_cred_ids[PRELINUX_EGID]
++      = __prelinux_cred_ids[PRELINUX_SGID] = gid;
++  else
++    __prelinux_cred_ids[PRELINUX_EGID] = gid;
++  return 0;
++#else
+ #ifdef __NR_setgid32
+   return INLINE_SETXID_SYSCALL (setgid32, 1, gid);
+ #else
+   return INLINE_SETXID_SYSCALL (setgid, 1, gid);
+ #endif
++#endif
+ }
+ #ifndef __setgid
+ weak_alias (__setgid, setgid)
+--- a/sysdeps/unix/sysv/linux/seteuid.c
++++ b/sysdeps/unix/sysv/linux/seteuid.c
+@@ -18,11 +18,16 @@
+ #include <errno.h>
+ #include <unistd.h>
+ #include <setxid.h>
++#include <prelinux.h>
+ 
+ 
+ int
+ seteuid (uid_t uid)
+ {
++#ifdef PRELINUX
++  __prelinux_cred_ids[PRELINUX_EUID] = uid;
++  return 0;
++#else
+   int result;
+ 
+   if (uid == (uid_t) ~0)
+@@ -35,6 +40,7 @@
+ #endif
+ 
+   return result;
++#endif
+ }
+ #ifndef seteuid
+ libc_hidden_def (seteuid)
+--- a/sysdeps/unix/sysv/linux/setegid.c
++++ b/sysdeps/unix/sysv/linux/setegid.c
+@@ -18,11 +18,16 @@
+ #include <errno.h>
+ #include <unistd.h>
+ #include <setxid.h>
++#include <prelinux.h>
+ 
+ 
+ int
+ setegid (gid_t gid)
+ {
++#ifdef PRELINUX
++  __prelinux_cred_ids[PRELINUX_EGID] = gid;
++  return 0;
++#else
+   int result;
+ 
+   if (gid == (gid_t) ~0)
+@@ -35,6 +40,7 @@
+ #endif
+ 
+   return result;
++#endif
+ }
+ #ifndef setegid
+ libc_hidden_def (setegid)
+--- a/sysdeps/unix/sysv/linux/setgroups.c
++++ b/sysdeps/unix/sysv/linux/setgroups.c
+@@ -17,8 +17,10 @@
+ 
+ #include <errno.h>
+ #include <grp.h>
++#include <string.h>
+ #include <setxid.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ 
+ /* Set the group set for the current user to GROUPS (N of them).  For
+@@ -27,10 +29,17 @@
+ int
+ setgroups (size_t n, const gid_t *groups)
+ {
++#ifdef PRELINUX
++  int nn = n > 256 ? 256 : (int) n;
++  memcpy (__prelinux_cred_groups, groups, nn * sizeof (gid_t));
++  __prelinux_cred_ngroups = nn;
++  return 0;
++#else
+ #ifdef __NR_setgroups32
+   return INLINE_SETXID_SYSCALL (setgroups32, 2, n, groups);
+ #else
+   return INLINE_SETXID_SYSCALL (setgroups, 2, n, groups);
+ #endif
++#endif
+ }
+ libc_hidden_def (setgroups)
+--- a/sysdeps/unix/sysv/linux/setresuid.c
++++ b/sysdeps/unix/sysv/linux/setresuid.c
+@@ -18,16 +18,27 @@
+ #include <errno.h>
+ #include <unistd.h>
+ #include <setxid.h>
++#include <prelinux.h>
+ 
+ 
+ int
+ __setresuid (uid_t ruid, uid_t euid, uid_t suid)
+ {
++#ifdef PRELINUX
++  if (ruid != (uid_t) -1)
++    __prelinux_cred_ids[PRELINUX_RUID] = ruid;
++  if (euid != (uid_t) -1)
++    __prelinux_cred_ids[PRELINUX_EUID] = euid;
++  if (suid != (uid_t) -1)
++    __prelinux_cred_ids[PRELINUX_SUID] = suid;
++  return 0;
++#else
+ #ifdef __NR_setresuid32
+   return INLINE_SETXID_SYSCALL (setresuid32, 3, ruid, euid, suid);
+ #else
+   return INLINE_SETXID_SYSCALL (setresuid, 3, ruid, euid, suid);
+ #endif
++#endif
+ }
+ libc_hidden_def (__setresuid)
+ #ifndef __setresuid
+--- a/sysdeps/unix/sysv/linux/setresgid.c
++++ b/sysdeps/unix/sysv/linux/setresgid.c
+@@ -18,16 +18,27 @@
+ #include <errno.h>
+ #include <unistd.h>
+ #include <setxid.h>
++#include <prelinux.h>
+ 
+ 
+ int
+ __setresgid (gid_t rgid, gid_t egid, gid_t sgid)
+ {
++#ifdef PRELINUX
++  if (rgid != (gid_t) -1)
++    __prelinux_cred_ids[PRELINUX_RGID] = rgid;
++  if (egid != (gid_t) -1)
++    __prelinux_cred_ids[PRELINUX_EGID] = egid;
++  if (sgid != (gid_t) -1)
++    __prelinux_cred_ids[PRELINUX_SGID] = sgid;
++  return 0;
++#else
+ #ifdef __NR_setresgid32
+   return INLINE_SETXID_SYSCALL (setresgid32, 3, rgid, egid, sgid);
+ #else
+   return INLINE_SETXID_SYSCALL (setresgid, 3, rgid, egid, sgid);
+ #endif
++#endif
+ }
+ libc_hidden_def (__setresgid)
+ #ifndef __setresgid
+--- a/sysdeps/unix/sysv/linux/Makefile
++++ b/sysdeps/unix/sysv/linux/Makefile
+@@ -494,6 +494,7 @@
+   # sysdep_headers
+ 
+ sysdep_routines += \
++  prelinux-cred \
+   getcpu \
+   oldglob \
+   pidfd_getpid \
+--- /dev/null	2026-10-17 21:06:37.723000000 +0800
++++ b/sysdeps/unix/sysv/linux/prelinux-cred.c	2026-10-18 09:37:48.667192064 +0800
+@@ -0,0 +1,12 @@
++/* PreLinux id state.  Per-process;
++   zero-initialized, i.e. it starts as root.  */
++#include <sys/types.h>
++#include <unistd.h>
++#include <grp.h>
++#include <prelinux.h>
++
++#ifdef PRELINUX
++uid_t __prelinux_cred_ids[6];
++gid_t __prelinux_cred_groups[256];
++int __prelinux_cred_ngroups;
++#endif
+--- /dev/null	2026-10-17 21:06:37.723000000 +0800
++++ b/sysdeps/unix/sysv/linux/getuid.c	2026-10-18 09:37:48.667192064 +0800
+@@ -0,0 +1,24 @@
++/* PreLinux id state.  Replaces the wrapper
++   generated from the syscalls.list (generated wrappers cannot carry
++   per-process state).  Instances pretend to be a machine of their own:
++   IDs start at root and privilege "drops" and "regains" just update the
++   per-process state, so verification reads (apt's DropPrivileges) stay
++   consistent.  The kernel credentials never change.  Without -DPRELINUX
++   this compiles to the same behavior as the generated wrapper.  */
++#include <errno.h>
++#include <string.h>
++#include <unistd.h>
++#include <grp.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++uid_t
++__getuid (void)
++{
++#ifdef PRELINUX
++  return __prelinux_cred_ids[PRELINUX_RUID];
++#else
++  return INTERNAL_SYSCALL_CALL (getuid);
++#endif
++}
++weak_alias (__getuid, getuid)
+--- /dev/null	2026-10-17 21:06:37.723000000 +0800
++++ b/sysdeps/unix/sysv/linux/geteuid.c	2026-10-18 09:37:48.667192064 +0800
+@@ -0,0 +1,24 @@
++/* PreLinux id state.  Replaces the wrapper
++   generated from the syscalls.list (generated wrappers cannot carry
++   per-process state).  Instances pretend to be a machine of their own:
++   IDs start at root and privilege "drops" and "regains" just update the
++   per-process state, so verification reads (apt's DropPrivileges) stay
++   consistent.  The kernel credentials never change.  Without -DPRELINUX
++   this compiles to the same behavior as the generated wrapper.  */
++#include <errno.h>
++#include <string.h>
++#include <unistd.h>
++#include <grp.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++uid_t
++__geteuid (void)
++{
++#ifdef PRELINUX
++  return __prelinux_cred_ids[PRELINUX_EUID];
++#else
++  return INTERNAL_SYSCALL_CALL (geteuid);
++#endif
++}
++weak_alias (__geteuid, geteuid)
+--- /dev/null	2026-10-17 21:06:37.723000000 +0800
++++ b/sysdeps/unix/sysv/linux/getgid.c	2026-10-18 09:37:48.667192064 +0800
+@@ -0,0 +1,24 @@
++/* PreLinux id state.  Replaces the wrapper
++   generated from the syscalls.list (generated wrappers cannot carry
++   per-process state).  Instances pretend to be a machine of their own:
++   IDs start at root and privilege "drops" and "regains" just update the
++   per-process state, so verification reads (apt's DropPrivileges) stay
++   consistent.  The kernel credentials never change.  Without -DPRELINUX
++   this compiles to the same behavior as the generated wrapper.  */
++#include <errno.h>
++#include <string.h>
++#include <unistd.h>
++#include <grp.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++gid_t
++__getgid (void)
++{
++#ifdef PRELINUX
++  return __prelinux_cred_ids[PRELINUX_RGID];
++#else
++  return INTERNAL_SYSCALL_CALL (getgid);
++#endif
++}
++weak_alias (__getgid, getgid)
+--- /dev/null	2026-10-17 21:06:37.723000000 +0800
++++ b/sysdeps/unix/sysv/linux/getegid.c	2026-10-18 09:37:48.667192064 +0800
+@@ -0,0 +1,24 @@
++/* PreLinux id state.  Replaces the wrapper
++   generated from the syscalls.list (generated wrappers cannot carry
++   per-process state).  Instances pretend to be a machine of their own:
++   IDs start at root and privilege "drops" and "regains" just update the
++   per-process state, so verification reads (apt's DropPrivileges) stay
++   consistent.  The kernel credentials never change.  Without -DPRELINUX
++   this compiles to the same behavior as the generated wrapper.  */
++#include <errno.h>
++#include <string.h>
++#include <unistd.h>
++#include <grp.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++gid_t
++__getegid (void)
++{
++#ifdef PRELINUX
++  return __prelinux_cred_ids[PRELINUX_EGID];
++#else
++  return INTERNAL_SYSCALL_CALL (getegid);
++#endif
++}
++weak_alias (__getegid, getegid)
+--- /dev/null	2026-10-17 21:06:37.723000000 +0800
++++ b/sysdeps/unix/sysv/linux/getgroups.c	2026-10-18 09:37:48.667192064 +0800
+@@ -0,0 +1,33 @@
++/* PreLinux id state.  Replaces the wrapper
++   generated from the syscalls.list (generated wrappers cannot carry
++   per-process state).  Instances pretend to be a machine of their own:
++   IDs start at root and privilege "drops" and "regains" just update the
++   per-process state, so verification reads (apt's DropPrivileges) stay
++   consistent.  The kernel credentials never change.  Without -DPRELINUX
++   this compiles to the same behavior as the generated wrapper.  */
++#include <errno.h>
++#include <string.h>
++#include <unistd.h>
++#include <grp.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++__getgroups (int size, gid_t *list)
++{
++#ifdef PRELINUX
++  int n = __prelinux_cred_ngroups;
++  if (size == 0)
++    return n;
++  if (size < n)
++    {
++      __set_errno (EINVAL);
++      return -1;
++    }
++  memcpy (list, __prelinux_cred_groups, n * sizeof (gid_t));
++  return n;
++#else
++  return INLINE_SYSCALL_CALL (getgroups, size, list);
++#endif
++}
++weak_alias (__getgroups, getgroups)
+--- /dev/null	2026-10-17 21:06:37.723000000 +0800
++++ b/sysdeps/unix/sysv/linux/getresuid.c	2026-10-18 09:37:48.667192064 +0800
+@@ -0,0 +1,26 @@
++/* PreLinux id state.  Replaces the wrapper
++   generated from the syscalls.list (generated wrappers cannot carry
++   per-process state).  Instances pretend to be a machine of their own:
++   IDs start at root and privilege "drops" and "regains" just update the
++   per-process state, so verification reads (apt's DropPrivileges) stay
++   consistent.  The kernel credentials never change.  Without -DPRELINUX
++   this compiles to the same behavior as the generated wrapper.  */
++#include <errno.h>
++#include <string.h>
++#include <unistd.h>
++#include <grp.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++getresuid (uid_t *ruidp, uid_t *euidp, uid_t *suidp)
++{
++#ifdef PRELINUX
++  *ruidp = __prelinux_cred_ids[PRELINUX_RUID];
++  *euidp = __prelinux_cred_ids[PRELINUX_EUID];
++  *suidp = __prelinux_cred_ids[PRELINUX_SUID];
++  return 0;
++#else
++  return INLINE_SYSCALL_CALL (getresuid, ruidp, euidp, suidp);
++#endif
++}
+--- /dev/null	2026-10-17 21:06:37.723000000 +0800
++++ b/sysdeps/unix/sysv/linux/getresgid.c	2026-10-18 09:37:48.667192064 +0800
+@@ -0,0 +1,26 @@
++/* PreLinux id state.  Replaces the wrapper
++   generated from the syscalls.list (generated wrappers cannot carry
++   per-process state).  Instances pretend to be a machine of their own:
++   IDs start at root and privilege "drops" and "regains" just update the
++   per-process state, so verification reads (apt's DropPrivileges) stay
++   consistent.  The kernel credentials never change.  Without -DPRELINUX
++   this compiles to the same behavior as the generated wrapper.  */
++#include <errno.h>
++#include <string.h>
++#include <unistd.h>
++#include <grp.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++getresgid (gid_t *ruidp, gid_t *euidp, gid_t *suidp)
++{
++#ifdef PRELINUX
++  *ruidp = __prelinux_cred_ids[PRELINUX_RGID];
++  *euidp = __prelinux_cred_ids[PRELINUX_EGID];
++  *suidp = __prelinux_cred_ids[PRELINUX_SGID];
++  return 0;
++#else
++  return INLINE_SYSCALL_CALL (getresgid, ruidp, euidp, suidp);
++#endif
++}

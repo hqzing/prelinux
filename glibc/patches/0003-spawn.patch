@@ -1,0 +1,58 @@
+diff -ruN m1/sysdeps/unix/sysv/linux/spawni.c m3/sysdeps/unix/sysv/linux/spawni.c
+--- a/sysdeps/unix/sysv/linux/spawni.c	2024-01-31 08:34:58.000000000 +0800
++++ b/sysdeps/unix/sysv/linux/spawni.c	2026-10-20 18:27:19.625481044 +0800
+@@ -265,9 +265,16 @@
+ 	    case spawn_do_closefrom:
+ 	      {
+ 		int lowfd = action->action.closefrom_action.from;
++#ifdef PRELINUX
++		/* HarmonyOS PC: close_range(2) is answered with SIGSYS, not
++		   ENOSYS, so the fallback below would never be reached.  */
++		if (!__closefrom_fallback (lowfd, false))
++		  goto fail;
++#else
+ 	        int r = INLINE_SYSCALL_CALL (close_range, lowfd, ~0U, 0);
+ 		if (r != 0 && !__closefrom_fallback (lowfd, false))
+ 		  goto fail;
++#endif
+ 	      } break;
+ 
+ 	    case spawn_do_tcsetpgrp:
+@@ -412,28 +419,16 @@
+ 	 on parent_tid.  */
+       .parent_tid = use_pidfd ? (uintptr_t) &args.pidfd : 0,
+     };
+-#ifdef HAVE_CLONE3_WRAPPER
+-  args.use_clone3 = true;
+-  new_pid = __clone3 (&clone_args, sizeof (clone_args), __spawni_child,
+-		      &args);
+-  /* clone3 was added in 5.3 and CLONE_CLEAR_SIGHAND in 5.5.  */
+-  if (new_pid == -1 && (errno == ENOSYS || errno == EINVAL))
+-#endif
++  /* clone3 must not be attempted: the HongMeng kernel answers it with SIGSYS.  Go
++     straight to the clone(2) path, and report ENOTSUP for the one option
++     only clone3 can carry.  */
++  args.use_clone3 = false;
++  if (!set_cgroup)
++    new_pid = __clone_internal_fallback (&clone_args, __spawni_child, &args);
++  else
+     {
+-      args.use_clone3 = false;
+-      if (!set_cgroup)
+-	new_pid = __clone_internal_fallback (&clone_args, __spawni_child,
+-					     &args);
+-      else
+-	{
+-	  /* No fallback for POSIX_SPAWN_SETCGROUP if clone3 is not
+-	     supported.  */
+-	  new_pid = -1;
+-#ifdef HAVE_CLONE3_WRAPPER
+-	  if (errno == ENOSYS)
+-#endif
+-	    errno = ENOTSUP;
+-	}
++      new_pid = -1;
++      errno = ENOTSUP;
+     }
+ 
+   /* It needs to collect the case where the auxiliary process was created

@@ -1,0 +1,30 @@
+--- a/sysdeps/unix/sysv/linux/clone-internal.c
++++ b/sysdeps/unix/sysv/linux/clone-internal.c
+@@ -72,21 +72,12 @@
+ __clone3_internal (struct clone_args *cl_args, int (*func) (void *args),
+ 		   void *arg)
+ {
+-#ifdef HAVE_CLONE3_WRAPPER
+-# if __ASSUME_CLONE3
+-  return __clone3 (cl_args, sizeof (*cl_args), func, arg);
+-# else
+-  static int clone3_supported = 1;
+-  if (atomic_load_relaxed (&clone3_supported) == 1)
+-    {
+-      int ret = __clone3 (cl_args, sizeof (*cl_args), func, arg);
+-      if (ret != -1 || errno != ENOSYS)
+-	return ret;
+-
+-      atomic_store_relaxed (&clone3_supported, 0);
+-    }
+-# endif
+-#endif
++  /* The HongMeng kernel answers clone3 with SIGSYS instead of ENOSYS, so the usual
++     "try clone3, fall back on ENOSYS" probe kills the caller.  Never
++     attempt it; callers see ENOSYS and take the clone(2) path.  */
++  (void) cl_args;
++  (void) func;
++  (void) arg;
+   __set_errno (ENOSYS);
+   return -1;
+ }

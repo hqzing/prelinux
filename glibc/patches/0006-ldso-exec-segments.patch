@@ -1,0 +1,45 @@
+--- a/elf/dl-map-segments.h
++++ b/elf/dl-map-segments.h
+@@ -26,8 +26,25 @@
+ 		 const size_t maplength, int fd)
+ {
+   if (__glibc_likely (c->mapalign <= GLRO(dl_pagesize)))
+-    return (ElfW(Addr)) __mmap ((void *) mappref, maplength, c->prot,
+-				MAP_COPY|MAP_FILE, fd, c->mapoff);
++    {
++      /* The HongMeng kernel only allows PROT_EXEC file mappings on pages that
++	 belong to an executable segment, so map the whole span readable
++	 first and then map this segment's own range executable.  */
++      int span_prot = c->prot & ~PROT_EXEC;
++      ElfW(Addr) start
++	= (ElfW(Addr)) __mmap ((void *) mappref, maplength, span_prot,
++			       MAP_COPY|MAP_FILE, fd, c->mapoff);
++      if ((void *) start == MAP_FAILED)
++	return start;
++      if (span_prot != c->prot
++	  && __mmap ((void *) start, c->mapend - c->mapstart, c->prot,
++		     MAP_COPY|MAP_FILE|MAP_FIXED, fd, c->mapoff) == MAP_FAILED)
++	{
++	  __munmap ((void *) start, maplength);
++	  return (ElfW(Addr)) MAP_FAILED;
++	}
++      return start;
++    }
+ 
+   /* If the segment alignment > the page size, allocate enough space to
+      ensure that the segment can be properly aligned.  */
+@@ -42,8 +59,13 @@
+     return map_start;
+ 
+   ElfW(Addr) map_start_aligned = ALIGN_UP (map_start, c->mapalign);
++  /* Same restriction as above: when this segment is executable, only its
++     own extent may be mapped from the file with PROT_EXEC; the rest of the
++     reservation stays PROT_NONE for the per-segment loop.  */
++  size_t first_len
++    = (c->prot & PROT_EXEC) ? c->mapend - c->mapstart : maplength;
+   map_start_aligned = (ElfW(Addr)) __mmap ((void *) map_start_aligned,
+-					   maplength, c->prot,
++					   first_len, c->prot,
+ 					   MAP_COPY|MAP_FILE|MAP_FIXED,
+ 					   fd, c->mapoff);
+   if (__glibc_unlikely ((void *) map_start_aligned == MAP_FAILED))

@@ -1,0 +1,100 @@
+--- a/lib/fsm.c
++++ b/lib/fsm.c
+@@ -9,6 +9,8 @@
+ #include <utime.h>
+ #include <errno.h>
+ #include <fcntl.h>
++#include <limits.h>
++#include <sys/wait.h>
+ #ifdef WITH_CAP
+ #include <sys/capability.h>
+ #endif
+@@ -761,6 +763,77 @@
+     return rc;
+ }
+ 
++/* PreLinux: after a regular file has been committed to its final name,
++   rewrite ELF PT_INTERP/RPATH and absolute-path shebangs into the
++   instance.  Done as a subprocess for simplicity and
++   reliability; failures are warnings, never
++   transaction-fatal.
++
++   fsm paths are dirfd-relative (dirfd is the file's parent directory);
++   resolve the real absolute path via /proc/self/fd so the subprocess
++   needs no translation context.  The tool path comes from
++   $PRELINUX_RELOCATE (env.sh points it at the instance's static
++   binary).  */
++static void prelinux_relocate_hook(int dirfd, const char *path)
++{
++    const char *tool;
++    char abs[PATH_MAX];
++    ssize_t n;
++    int fd;
++    pid_t pid;
++
++    if (getenv("PRELINUX_RELOCATE_DISABLE"))
++	return;
++    tool = getenv("PRELINUX_RELOCATE");
++    if (tool == NULL || *tool == '\0')
++	return;
++
++    /* Cheap pre-filter: only ELF files and "#!" scripts qualify. */
++    fd = openat(dirfd, path, O_RDONLY|O_NOFOLLOW);
++    if (fd < 0)
++	return;
++    {
++	char magic[4];
++
++	n = read(fd, magic, sizeof(magic));
++	close(fd);
++	if (n < 4)
++	    return;
++	if (memcmp(magic, "\177ELF", 4) != 0 &&
++	    !(magic[0] == '#' && magic[1] == '!'))
++	    return;
++    }
++
++    /* Resolve to an absolute real path. */
++    if (path[0] == '/') {
++	snprintf(abs, sizeof(abs), "%s", path);
++    } else {
++	char fdpath[64];
++
++	snprintf(fdpath, sizeof(fdpath), "/proc/self/fd/%d", dirfd);
++	n = readlink(fdpath, abs, sizeof(abs) - 1);
++	if (n <= 0 || n >= (ssize_t)sizeof(abs) - 1)
++	    return;
++	abs[n] = '\0';
++	snprintf(abs + n, sizeof(abs) - n, "/%s", path);
++    }
++
++    pid = fork();
++    if (pid == 0) {
++	execl(tool, "prelinux", "relocate", "--quiet", abs, (char *) NULL);
++	_exit(127);
++    }
++    if (pid > 0) {
++	int st;
++
++	while (waitpid(pid, &st, 0) < 0 && errno == EINTR)
++	    ;
++	if (st != 0)
++	    rpmlog(RPMLOG_WARNING,
++		   _("prelinux relocate failed for %s\n"), abs);
++    }
++}
++
+ static int fsmCommit(int dirfd, char **path, rpmfi fi, rpmFileAction action, const char *suffix)
+ {
+     int rc = 0;
+@@ -790,6 +863,10 @@
+ 	}
+     }
+ 
++    /* PreLinux: relocate freshly installed regular files. */
++    if (rc == 0 && S_ISREG(rpmfiFMode(fi)))
++	prelinux_relocate_hook(dirfd, *path);
++
+     return rc;
+ }
+ 

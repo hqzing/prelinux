@@ -1,0 +1,52 @@
+--- a/src/main/archives.c
++++ b/src/main/archives.c
+@@ -445,6 +445,38 @@
+ 	}
+ }
+ 
++static int prelinux_ldconfig_registered;
++
++/* PreLinux: refresh the loader cache once, when the unpack process exits.
++   apt unpacks every package first and configures them afterwards in a
++   separate dpkg process, so a postinst that runs a program from this
++   transaction (ca-certificates -> openssl -> libssl.so.3) would find an
++   empty cache.  The tool path comes from $PRELINUX_RELOCATE, the same
++   variable the relocate hook already relies on.  */
++static void
++prelinux_ldconfig_now(void)
++{
++	const char *tool = getenv("PRELINUX_RELOCATE");
++	const char *suffix = "/prelinux/bin/prelinux";
++	char path[4096];
++	pid_t pid;
++	size_t len, slen = strlen(suffix);
++
++	if (tool == NULL)
++		return;
++	len = strlen(tool);
++	if (len <= slen || strcmp(tool + len - slen, suffix) != 0)
++		return;
++	snprintf(path, sizeof(path), "%.*s/glibc/sbin/ldconfig",
++		 (int) (len - slen), tool);
++	pid = subproc_fork();
++	if (pid == 0) {
++		execl(path, "ldconfig", (char *) NULL);
++		_exit(127);
++	}
++	subproc_reap(pid, "ldconfig", SUBPROC_WARN);
++}
++
+ static void
+ prelinux_relocate_hook(const char *path)
+ {
+@@ -465,6 +498,10 @@
+ 		return;
+ 
+ 	prelinux_relocate_path(path);
++	if (strstr(path, ".so") != NULL && !prelinux_ldconfig_registered) {
++		prelinux_ldconfig_registered = 1;
++		atexit(prelinux_ldconfig_now);
++	}
+ }
+ 
+ static void

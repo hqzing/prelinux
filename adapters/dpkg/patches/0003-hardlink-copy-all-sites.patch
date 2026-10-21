@@ -1,0 +1,264 @@
+--- dpkg-step2/lib/dpkg/atomic-file.c	2026-03-07 20:00:42.000000000 +0800
++++ dpkgsrc/lib/dpkg/atomic-file.c	2026-10-19 12:06:24.772671639 +0800
+@@ -23,6 +23,8 @@
+ 
+ #include <sys/stat.h>
+ 
++#include <fcntl.h>
++
+ #include <errno.h>
+ #include <stdlib.h>
+ #include <stdio.h>
+@@ -31,6 +33,53 @@
+ #include <dpkg/i18n.h>
+ #include <dpkg/dpkg.h>
+ #include <dpkg/dir.h>
++
++/* PreLinux: filesystems without hard-link support (HarmonyOS PC's hmdfs
++ * returns EPERM from link(2)) get an independent copy instead.  The
++ * backup content is identical; only the link count differs. */
++static int
++prelinux_copy_file(const char *src, const char *dst)
++{
++	struct stat st;
++	char buf[65536];
++	ssize_t nr;
++	int in, out;
++
++	if (stat(src, &st) < 0)
++		return -1;
++	in = open(src, O_RDONLY);
++	if (in < 0)
++		return -1;
++	out = open(dst, O_WRONLY | O_CREAT | O_TRUNC, st.st_mode & 07777);
++	if (out < 0) {
++		close(in);
++		return -1;
++	}
++	while ((nr = read(in, buf, sizeof(buf))) > 0) {
++		char *p = buf;
++		ssize_t left = nr;
++
++		while (left > 0) {
++			ssize_t nw = write(out, p, left);
++
++			if (nw < 0) {
++				close(in);
++				close(out);
++				return -1;
++			}
++			p += nw;
++			left -= nw;
++		}
++	}
++	close(in);
++	if (nr < 0 || close(out) < 0)
++		return -1;
++	return 0;
++}
++
++#define PRELINUX_LINK_UNSUPPORTED(e) \
++	((e) == EPERM || (e) == EOPNOTSUPP || (e) == ENOSYS || (e) == EXDEV)
++
+ #include <dpkg/atomic-file.h>
+ 
+ #define ATOMIC_FILE_NEW_EXT "-new"
+@@ -98,8 +147,16 @@
+ 
+ 	if (unlink(name_old) && errno != ENOENT)
+ 		ohshite(_("error removing old backup file '%s'"), name_old);
+-	if (link(file->name, name_old) && errno != ENOENT)
+-		ohshite(_("error creating new backup file '%s'"), name_old);
++	if (link(file->name, name_old)) {
++		if (errno == ENOENT) {
++			/* No old file yet: nothing to back up. */
++		} else if (PRELINUX_LINK_UNSUPPORTED(errno) &&
++		           prelinux_copy_file(file->name, name_old) == 0) {
++			/* PreLinux: copied instead of linked. */
++		} else {
++			ohshite(_("error creating new backup file '%s'"), name_old);
++		}
++	}
+ 
+ 	free(name_old);
+ }
+--- dpkg-step2/lib/dpkg/db-ctrl-upgrade.c	2026-03-07 20:00:42.000000000 +0800
++++ dpkgsrc/lib/dpkg/db-ctrl-upgrade.c	2026-10-19 12:06:24.774671661 +0800
+@@ -27,6 +27,8 @@
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ 
++#include <fcntl.h>
++
+ #include <errno.h>
+ #include <stdlib.h>
+ #include <unistd.h>
+@@ -37,6 +39,53 @@
+ #include <dpkg/fsys.h>
+ #include <dpkg/db-ctrl.h>
+ #include <dpkg/path.h>
++
++/* PreLinux: filesystems without hard-link support (HarmonyOS PC's hmdfs
++ * returns EPERM from link(2)) get an independent copy instead.  The
++ * backup content is identical; only the link count differs. */
++static int
++prelinux_copy_file(const char *src, const char *dst)
++{
++	struct stat st;
++	char buf[65536];
++	ssize_t nr;
++	int in, out;
++
++	if (stat(src, &st) < 0)
++		return -1;
++	in = open(src, O_RDONLY);
++	if (in < 0)
++		return -1;
++	out = open(dst, O_WRONLY | O_CREAT | O_TRUNC, st.st_mode & 07777);
++	if (out < 0) {
++		close(in);
++		return -1;
++	}
++	while ((nr = read(in, buf, sizeof(buf))) > 0) {
++		char *p = buf;
++		ssize_t left = nr;
++
++		while (left > 0) {
++			ssize_t nw = write(out, p, left);
++
++			if (nw < 0) {
++				close(in);
++				close(out);
++				return -1;
++			}
++			p += nw;
++			left -= nw;
++		}
++	}
++	close(in);
++	if (nr < 0 || close(out) < 0)
++		return -1;
++	return 0;
++}
++
++#define PRELINUX_LINK_UNSUPPORTED(e) \
++	((e) == EPERM || (e) == EOPNOTSUPP || (e) == ENOSYS || (e) == EXDEV)
++
+ #include <dpkg/dir.h>
+ 
+ struct rename_node {
+@@ -142,9 +191,16 @@
+ 		varbuf_add_str(&newname, filetype);
+ 		varbuf_end_str(&newname);
+ 
+-		if (link(oldname.buf, newname.buf) && errno != EEXIST)
+-			ohshite(_("error creating hard link '%.255s'"),
+-			        newname.buf);
++		if (link(oldname.buf, newname.buf)) {
++			if (errno == EEXIST) {
++				/* Already linked. */
++			} else if (PRELINUX_LINK_UNSUPPORTED(errno) &&
++			           prelinux_copy_file(oldname.buf, newname.buf) == 0) {
++				/* PreLinux: copied instead of linked. */
++			} else
++				ohshite(_("error creating hard link '%.255s'"),
++				        newname.buf);
++		}
+ 		rename_head = rename_node_new(oldname.buf, newname.buf, rename_head);
+ 	}
+ 	pop_cleanup(ehflag_normaltidy); /* closedir */
+@@ -163,9 +219,17 @@
+ 	/* Restore the old files if needed and drop the newly created files. */
+ 	while (rename_head) {
+ 		next = rename_head->next;
+-		if (link(rename_head->new, rename_head->old) && errno != EEXIST)
+-			ohshite(_("error creating hard link '%.255s'"),
+-			        rename_head->old);
++		if (link(rename_head->new, rename_head->old)) {
++			if (errno == EEXIST) {
++				/* Already linked. */
++			} else if (PRELINUX_LINK_UNSUPPORTED(errno) &&
++			           prelinux_copy_file(rename_head->new,
++			                              rename_head->old) == 0) {
++				/* PreLinux: copied instead of linked. */
++			} else
++				ohshite(_("error creating hard link '%.255s'"),
++				        rename_head->old);
++		}
+ 		if (unlink(rename_head->new))
+ 			ohshite(_("cannot remove '%.250s'"), rename_head->new);
+ 		rename_node_free(rename_head);
+--- dpkg-step2/src/main/archives.c	2026-10-19 11:59:09.979793483 +0800
++++ dpkgsrc/src/main/archives.c	2026-10-19 12:06:24.773671650 +0800
+@@ -56,6 +56,53 @@
+ #include <dpkg/options.h>
+ #include <dpkg/triglib.h>
+ #include <dpkg/db-ctrl.h>
++
++/* PreLinux: filesystems without hard-link support (HarmonyOS PC's hmdfs
++ * returns EPERM from link(2)) get an independent copy instead.  The
++ * backup content is identical; only the link count differs. */
++static int
++prelinux_copy_file(const char *src, const char *dst)
++{
++	struct stat st;
++	char buf[65536];
++	ssize_t nr;
++	int in, out;
++
++	if (stat(src, &st) < 0)
++		return -1;
++	in = open(src, O_RDONLY);
++	if (in < 0)
++		return -1;
++	out = open(dst, O_WRONLY | O_CREAT | O_TRUNC, st.st_mode & 07777);
++	if (out < 0) {
++		close(in);
++		return -1;
++	}
++	while ((nr = read(in, buf, sizeof(buf))) > 0) {
++		char *p = buf;
++		ssize_t left = nr;
++
++		while (left > 0) {
++			ssize_t nw = write(out, p, left);
++
++			if (nw < 0) {
++				close(in);
++				close(out);
++				return -1;
++			}
++			p += nw;
++			left -= nw;
++		}
++	}
++	close(in);
++	if (nr < 0 || close(out) < 0)
++		return -1;
++	return 0;
++}
++
++#define PRELINUX_LINK_UNSUPPORTED(e) \
++	((e) == EPERM || (e) == EOPNOTSUPP || (e) == ENOSYS || (e) == EXDEV)
++
+ #include <dpkg/db-fsys.h>
+ 
+ #include "main.h"
+@@ -1113,9 +1160,14 @@
+       tarobject_set_se_context(fnamevb.buf, fnametmpvb.buf, stab.st_mode);
+     } else {
+       debug(dbg_eachfiledetail, "tarobject nondirectory, 'link' backup");
+-      if (link(fnamevb.buf,fnametmpvb.buf))
+-        ohshite(_("unable to make backup link of '%.255s' before installing new version"),
+-                ti->name);
++      if (link(fnamevb.buf, fnametmpvb.buf)) {
++        if (PRELINUX_LINK_UNSUPPORTED(errno) &&
++            prelinux_copy_file(fnamevb.buf, fnametmpvb.buf) == 0) {
++          /* PreLinux: copied instead of linked. */
++        } else
++          ohshite(_("unable to make backup link of '%.255s' before installing new version"),
++                  ti->name);
++      }
+     }
+   }
+ 

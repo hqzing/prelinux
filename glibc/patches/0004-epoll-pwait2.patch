@@ -1,0 +1,41 @@
+--- a/sysdeps/unix/sysv/linux/epoll_pwait2.c
++++ b/sysdeps/unix/sysv/linux/epoll_pwait2.c
+@@ -19,12 +19,36 @@
+ #include <sys/epoll.h>
+ #include <sysdep.h>
+ 
++libc_hidden_proto (epoll_pwait)
++
+ int
+ __epoll_pwait2_time64 (int fd, struct epoll_event *ev, int maxev,
+ 		       const struct __timespec64 *tmo, const sigset_t *s)
+ {
+-  /* The syscall only supports 64-bit time_t.  */
+-  return SYSCALL_CANCEL (epoll_pwait2, fd, ev, maxev, tmo, s, __NSIG_BYTES);
++  /* The HongMeng kernel answers epoll_pwait2 with SIGSYS instead of ENOSYS.  Express
++     the same wait with epoll_pwait, whose timeout is in milliseconds:
++     round sub-millisecond remainders up so a non-zero timeout never turns
++     into a busy poll.  */
++  int timeout;
++
++  if (__glibc_unlikely (tmo == NULL))
++    timeout = -1;
++  else
++    {
++      if (__glibc_unlikely (tmo->tv_sec < 0 || tmo->tv_nsec < 0
++			    || tmo->tv_nsec >= 1000000000))
++	{
++	  __set_errno (EINVAL);
++	  return -1;
++	}
++      if (tmo->tv_sec > INT_MAX / 1000)
++	timeout = INT_MAX;
++      else
++	timeout = (int) (tmo->tv_sec * 1000
++			 + (tmo->tv_nsec + 999999) / 1000000);
++    }
++
++  return epoll_pwait (fd, ev, maxev, timeout, s);
+ }
+ #if __TIMESIZE != 64
+ libc_hidden_def (__epoll_pwait2_time64)

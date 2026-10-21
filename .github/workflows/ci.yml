@@ -1,0 +1,219 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+env:
+  # Release builds take the version from the tag, so `prelinux --version`
+  # cannot drift from the release.
+  PRELINUX_BUILD_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+
+jobs:
+  # ---- stage A: build prelinux-glibc + CLI (internal base payload) ---
+  build-glibc:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install build deps
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential musl-tools gawk bison m4 texinfo gettext python3 curl
+      - name: Sync check (shared translation core)
+        run: tests/test-sync.sh .
+      - name: Base SDK unit tests
+        run: make -C prelinux VERSION="${PRELINUX_BUILD_VERSION#v}" && tests/test-relocate.sh .
+      - name: Download glibc
+        run: |
+          mkdir -p work
+          curl -fsSL -o work/glibc-2.39.tar.gz https://ftp.gnu.org/gnu/glibc/glibc-2.39.tar.gz || \
+          curl -fsSL -o work/glibc-2.39.tar.gz https://ftpmirror.gnu.org/glibc/glibc-2.39.tar.gz
+          echo "97f84f3b7588cd54093a6f6389b0c1a81e70d99708d74963a2e3eab7c7dc942d  work/glibc-2.39.tar.gz" | sha256sum -c -
+          tar -xf work/glibc-2.39.tar.gz -C work
+      - name: Apply the patch series
+        run: |
+          cd work/glibc-2.39
+          while read -r p; do patch -p1 < "$OLDPWD/glibc/patches/$p"; done < "$OLDPWD/glibc/series"
+      - name: Build glibc (PRELINUX)
+        run: scripts/build-glibc.sh work/glibc-2.39 work/build-a work/dest-a
+      - name: Build glibc (patched, no PRELINUX)
+        run: scripts/build-glibc.sh work/glibc-2.39 work/build-b work/dest-b --no-prelinux
+      - name: Package base payload (internal artifact)
+        run: |
+          make -C prelinux VERSION="${PRELINUX_BUILD_VERSION#v}"
+          mkdir -p out
+          scripts/package-base.sh work/dest-a prelinux out
+      - uses: actions/upload-artifact@v7
+        with:
+          name: base-${{ matrix.arch }}
+          path: out/prelinux-base-*
+
+  # ---- stage B: build the package manager in each distro container ---
+  # The whole job runs inside the target distro's official image
+  # (`container:`), so the adapter links against exactly the libraries
+  # the instance rootfs ships, and the build glibc can never exceed the
+  # baseline.  The in-container logic lives in
+  # adapters/build-in-container.sh, shared with scripts/build-adapter.sh.
+  build-adapter:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+        distro:
+          - { image: debian:12, id: debian12, adapter: dpkg }
+          - { image: ubuntu:24.04, id: ubuntu2404, adapter: dpkg }
+          - { image: rockylinux/rockylinux:10, id: rocky10, adapter: rpm }
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container: ${{ matrix.distro.image }}
+    steps:
+      - name: Install git (minimal images lack it; checkout needs it)
+        run: |
+          if command -v apt-get >/dev/null; then
+            apt-get update -qq && apt-get install -y -qq git >/dev/null
+          elif command -v dnf >/dev/null; then
+            dnf install -y -q git >/dev/null
+          elif command -v yum >/dev/null; then
+            yum install -y -q git >/dev/null
+          elif command -v microdnf >/dev/null; then
+            microdnf install git >/dev/null
+          fi
+      - uses: actions/checkout@v7
+      - name: Build adapter inside ${{ matrix.distro.image }}
+        env:
+          distroid: ${{ matrix.distro.id }}
+          OUTDIR: ${{ github.workspace }}/out
+        run: adapters/build-in-container.sh ${{ matrix.distro.adapter }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: adapter-${{ matrix.distro.id }}-${{ matrix.arch }}
+          path: out/prelinux-adapter-*
+
+  # ---- stage C: end-to-end --------------------------------------------
+  e2e:
+    needs: [build-glibc, build-adapter]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+        distro: [debian:12, ubuntu:24.04, rockylinux/rockylinux:10]
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+      - name: Install e2e deps
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq strace musl-tools
+      - name: Build CLI
+        run: make -C prelinux VERSION="${PRELINUX_BUILD_VERSION#v}"
+      - name: Merge the image (rootfs + glibc payload + package manager)
+        run: |
+          arch=$(uname -m)
+          case "${{ matrix.distro }}" in
+            debian:12) distroid=debian12 ;;
+            ubuntu:24.04) distroid=ubuntu2404 ;;
+            rockylinux/rockylinux:10) distroid=rocky10 ;;
+          esac
+          echo "distroid=$distroid" >> "$GITHUB_ENV"
+          base=$(ls artifacts/base-*/prelinux-base-$arch.tar.gz)
+          adapter=$(ls artifacts/adapter-*/prelinux-adapter-$distroid-$arch.tar.gz)
+          mkdir -p img rootfs
+          scripts/fetch-rootfs.sh "$distroid" "$arch" rootfs
+          scripts/package-image.sh rootfs/*.rootfs.tar.gz "$base" "$adapter" "$distroid" img
+      - name: Import instance
+        run: ./prelinux/prelinux import img/prelinux-image-$distroid-$(uname -m).tar.gz "$HOME/inst"
+      - name: Install packages and run them
+        run: |
+          . "$HOME/inst/env.sh"
+          case "${{ matrix.distro }}" in
+            almalinux:*|rockylinux/*)
+              # RHEL clones do not package GNU hello; tree is the smoke pkg
+              smoke=/usr/bin/tree; expect_id=rocky
+              dnf install -y tree curl tzdata >/dev/null ;;
+            ubuntu:24.04)
+              smoke=/usr/bin/hello; expect_id=ubuntu
+              apt-get update -qq
+              apt-get install -y hello tree curl tzdata >/dev/null ;;
+            *)
+              smoke=/usr/bin/hello; expect_id=debian
+              apt-get update -qq
+              apt-get install -y hello tree curl tzdata >/dev/null ;;
+          esac
+
+          # the instance, not the runner.  This has to run in an instance
+          # shell: the runner's bash is a host process and its reads are
+          # not translated.
+          bash -c ". /etc/os-release; [ \"\$ID\" = \"$expect_id\" ]" || {
+            echo "os-release ID mismatch, want $expect_id"; exit 1
+          }
+          [ "$(prelinux root)" = "$PRELINUX_ROOT" ] || {
+            echo "prelinux root != PRELINUX_ROOT"; exit 1
+          }
+          prelinux info | grep -q "$expect_id"
+          tree -L 1 / >/dev/null
+
+          # every installed program has to run, and its interpreter must
+          # point inside the instance.  Absolute paths name the files in
+          # the instance; bare names go through the instance's PATH.
+          "$HOME/inst$smoke" >/dev/null
+          curl --version | grep -q libcurl
+          ls /etc/ssl/certs | head -1
+          readelf -lW "$HOME/inst$smoke" | grep -q "$HOME/inst/glibc/lib/ld-linux"
+          readelf -lW "$HOME/inst/usr/bin/tree" | grep -q "$PRELINUX_ROOT/glibc/lib/ld-linux"
+
+          # overwrite path: reinstalling unpacks over signed files and runs
+          # the package scripts again
+          case "${{ matrix.distro }}" in
+            almalinux:*|rockylinux/*)
+              dnf reinstall -y tree tzdata >/dev/null ;;
+            *)
+              apt-get install -y --reinstall tree tzdata >/dev/null 2>&1 ;;
+          esac
+          tree -L 1 / >/dev/null
+          [ -L "$PRELINUX_ROOT/etc/localtime" ]
+
+          "$HOME/inst$smoke" >/dev/null
+      - name: strace acceptance suite
+        run: tests/test-strace.sh . "$HOME/inst"
+
+  # ---- stage D: release --------------------------------------------------
+  # Assemble fully self-contained images (distro rootfs + glibc payload +
+  # package manager), generate SHA256SUMS (import verifies downloads
+  # against it) and publish them to GitHub Releases.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-glibc, build-adapter, e2e]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+      - name: Assemble images
+        run: |
+          mkdir -p release rootfs
+          for distro in debian12 ubuntu2404 rocky10; do
+            for arch in x86_64 aarch64; do
+              base=$(ls artifacts/base-$arch/prelinux-base-$arch.tar.gz)
+              adapter=$(ls artifacts/adapter-*/prelinux-adapter-$distro-$arch.tar.gz 2>/dev/null || true)
+              [ -n "$adapter" ] || continue
+              scripts/fetch-rootfs.sh "$distro" "$arch" rootfs
+              # ARCH must be pinned: this job runs on x86_64 and uname-based
+              # detection would misname (and overwrite) the aarch64 images.
+              ARCH=$arch scripts/package-image.sh rootfs/$distro-$arch.rootfs.tar.gz "$base" "$adapter" "$distro" release
+            done
+          done
+          cp install.sh release/
+          ( cd release && sha256sum prelinux-image-* > SHA256SUMS )
+          ls -la release/
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: release/*
+          generate_release_notes: true

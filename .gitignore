@@ -1,0 +1,9 @@
+# build artifacts
+prelinux/prelinux
+prelinux/libprelinux.so
+prelinux/src/*.o
+.cache/
+*.tar.gz
+*.tar.zst
+out/
+obj-cli/

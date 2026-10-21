@@ -1,0 +1,46 @@
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/removexattr.c
+@@ -0,0 +1,18 @@
++/* Remove an extended attribute.  PreLinux version: replaces the wrapper
++   generated from syscalls.list, adding path translation.  libacl's
++   acl_delete_def_file calls this to strip a default ACL from a copy; with
++   the untranslated instance path the kernel looked the name up under the
++   host root and returned ENOENT, so cp -a failed with "preserving
++   permissions".  */
++#include <errno.h>
++#include <sys/xattr.h>
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++removexattr (const char *path, const char *name)
++{
++  PRELINUX_TRANSLATE (path);
++  return INLINE_SYSCALL_CALL (removexattr, path, name);
++}
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/lremovexattr.c
+@@ -0,0 +1,15 @@
++/* Remove an extended attribute of a symlink itself.  PreLinux version:
++   replaces the wrapper generated from syscalls.list.  See removexattr.c
++   for why the path has to be translated.  */
++#include <errno.h>
++#include <sys/xattr.h>
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++lremovexattr (const char *path, const char *name)
++{
++  PRELINUX_TRANSLATE (path);
++  return INLINE_SYSCALL_CALL (lremovexattr, path, name);
++}
+--- a/sysdeps/unix/sysv/linux/syscalls.list
++++ b/sysdeps/unix/sysv/linux/syscalls.list
+@@ -69,4 +69,2 @@
+ flistxattr	-	flistxattr	i:isU	flistxattr
+-removexattr	-	removexattr	i:ss	removexattr
+-lremovexattr	-	lremovexattr	i:ss	lremovexattr
+ fremovexattr	-	fremovexattr	i:is	fremovexattr

@@ -1,0 +1,88 @@
+--- a/src/main/archives.c	2026-03-07 20:00:42.000000000 +0800
++++ b/src/main/archives.c	2026-10-18 01:26:42.451202947 +0800
+@@ -344,6 +344,58 @@
+   return false;
+ }
+ 
++/* PreLinux: after a file has been completely written to disk, rewrite
++   ELF PT_INTERP/RPATH and absolute-path shebangs into the instance
++   Done as a subprocess for simplicity and reliability
++   Failures are warnings, never transaction-fatal.
++
++   The tool path comes from $PRELINUX_RELOCATE (env.sh points it at the
++   instance's static binary) because apt sanitizes PATH for dpkg.  */
++void
++prelinux_relocate_path(const char *path)
++{
++	pid_t pid;
++
++	if (getenv("PRELINUX_RELOCATE_DISABLE"))
++		return;
++
++	{
++		const char *tool = getenv("PRELINUX_RELOCATE");
++		if (tool == NULL)
++			tool = "prelinux";
++
++		pid = subproc_fork();
++		if (pid == 0) {
++			execlp(tool, "prelinux", "relocate", "--quiet",
++			       path, NULL);
++			ohshite(_("unable to execute 'prelinux relocate'"));
++		}
++		subproc_reap(pid, "prelinux relocate", SUBPROC_WARN);
++	}
++}
++
++static void
++prelinux_relocate_hook(const char *path)
++{
++	char magic[4];
++	ssize_t n;
++	int fd;
++
++	/* Cheap pre-filter: only ELF files and "#!" scripts qualify. */
++	fd = open(path, O_RDONLY);
++	if (fd < 0)
++		return;
++	n = read(fd, magic, sizeof(magic));
++	close(fd);
++	if (n < 4)
++		return;
++	if (memcmp(magic, "\177ELF", 4) != 0 &&
++	    !(magic[0] == '#' && magic[1] == '!'))
++		return;
++
++	prelinux_relocate_path(path);
++}
++
+ static void
+ tarobject_extract(struct tarcontext *tc, struct tar_entry *te,
+                   const char *path, struct file_stat *st,
+@@ -407,6 +459,8 @@
+     pop_cleanup(ehflag_normaltidy); /* fd = open(path) */
+     if (close(fd))
+       ohshite(_("error closing/writing '%.255s'"), te->name);
++    /* PreLinux: relocate the freshly written file into the instance. */
++    prelinux_relocate_hook(path);
+     break;
+   case TAR_FILETYPE_FIFO:
+     if (mkfifo(path, 0))
+--- a/src/main/unpack.c	2026-03-07 20:00:42.000000000 +0800
++++ b/src/main/unpack.c	2026-10-18 01:30:22.708236288 +0800
+@@ -1260,6 +1260,15 @@
+   }
+   subproc_reap(pid, BACKEND " --control", 0);
+ 
++  /* PreLinux: control-archive scripts are extracted by the dpkg-deb
++     subprocess, bypassing the archives.c hook; relocate the whole
++     control directory here so their shebangs point into the instance
++     Do not mutate cidir: it is used further below.  */
++  {
++    extern void prelinux_relocate_path(const char *path);
++    prelinux_relocate_path(cidir);
++  }
++
+   /* We want to guarantee the extracted files are on the disk, so that the
+    * subsequent renames to the info database do not end up with old or zero
+    * length files in case of a system crash. As neither dpkg-deb nor tar do

@@ -1,0 +1,167 @@
+--- a/lib/fsm.c	2026-10-19 18:11:39.310199840 +0800
++++ b/lib/fsm.c	2026-10-19 18:12:10.988539085 +0800
+@@ -196,10 +196,104 @@
+     return rc;
+ }
+ 
++
++/* PreLinux: HarmonyOS PC's home filesystem (hmdfs) cannot create hard
++ * links (linkat -> EPERM), and rpm's hard-linked file sets are written
++ * before the payload delivers their content: the first member is opened
++ * and later members are linked to it, while the actual bytes arrive with
++ * whichever member cpio marks as carrying content.  A copy therefore has
++ * to wait until the end of the payload walk — copy at link time and every
++ * additional name would be empty. */
++struct prelinux_copy_link {
++    int sdirfd;
++    char *spath;
++    int ddirfd;
++    char *dpath;
++    struct prelinux_copy_link *next;
++};
++
++static int
++prelinux_copy_at(int sdirfd, const char *spath, int ddirfd, const char *dpath)
++{
++    struct stat st;
++    char buf[65536];
++    ssize_t n;
++    int in = -1, out = -1, rc = 0;
++
++    in = openat(sdirfd, spath, O_RDONLY | O_CLOEXEC);
++    if (in < 0)
++        return -1;
++    if (fstat(in, &st) != 0) {
++        close(in);
++        return -1;
++    }
++    out = openat(ddirfd, dpath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
++                 st.st_mode & 07777);
++    if (out < 0) {
++        close(in);
++        return -1;
++    }
++    while ((n = read(in, buf, sizeof buf)) > 0) {
++        ssize_t off = 0;
++        while (off < n) {
++            ssize_t w = write(out, buf + off, n - off);
++            if (w <= 0) {
++                rc = -1;
++                break;
++            }
++            off += w;
++        }
++        if (rc)
++            break;
++    }
++    if (n < 0)
++        rc = -1;
++    close(in);
++    if (close(out) != 0)
++        rc = -1;
++    return rc;
++}
++
++static void
++prelinux_copy_links(struct prelinux_copy_link **links, int *rc)
++{
++    struct prelinux_copy_link *l = *links;
++
++    while (l) {
++        struct prelinux_copy_link *next = l->next;
++
++        if (!*rc && prelinux_copy_at(l->sdirfd, l->spath,
++                                     l->ddirfd, l->dpath) != 0)
++            *rc = RPMERR_COPY_FAILED;
++        free(l->spath);
++        free(l->dpath);
++        free(l);
++        l = next;
++    }
++    *links = NULL;
++}
++
++static void
++prelinux_copy_links_free(struct prelinux_copy_link **links)
++{
++    struct prelinux_copy_link *l = *links;
++
++    while (l) {
++        struct prelinux_copy_link *next = l->next;
++
++        free(l->spath);
++        free(l->dpath);
++        free(l);
++        l = next;
++    }
++    *links = NULL;
++}
++
+ static int fsmMkfile(int dirfd, rpmfi fi, struct filedata_s *fp, rpmfiles files,
+ 		     rpmpsm psm, int nodigest,
+ 		     struct filedata_s ** firstlink, int *firstlinkfile,
+-		     int *firstdir, int *fdp)
++		     int *firstdir, int *fdp,
++		     struct prelinux_copy_link **defer)
+ {
+     int rc = 0;
+     int fd = -1;
+@@ -217,6 +311,20 @@
+ 	/* Create hard links for others and avoid redundant metadata setting */
+ 	if (*firstlink != fp) {
+ 	    rc = fsmLink(*firstdir, (*firstlink)->fpath, dirfd, fp->fpath);
++	    if (rc == RPMERR_LINK_FAILED &&
++		(errno == EPERM || errno == EOPNOTSUPP || errno == ENOSYS ||
++		 errno == EXDEV || errno == ENOENT)) {
++		/* PreLinux: defer a content copy to the end of the payload. */
++		struct prelinux_copy_link *n = xcalloc(1, sizeof(*n));
++
++		n->sdirfd = dup(*firstdir);
++		n->spath = xstrdup((*firstlink)->fpath);
++		n->ddirfd = dup(dirfd);
++		n->dpath = xstrdup(fp->fpath);
++		n->next = *defer;
++		*defer = n;
++		rc = 0;
++	    }
+ 	}
+ 	fd = *firstlinkfile;
+     }
+@@ -963,6 +1071,7 @@
+     struct filedata_s *fdata = xcalloc(fc, sizeof(*fdata));
+     struct filedata_s *firstlink = NULL;
+     struct diriter_s di = { -1, -1 };
++    struct prelinux_copy_link *copylinks = NULL;
+ 
+     /* transaction id used for temporary path suffix while installing */
+     rasprintf(&tid, ";%08x", (unsigned)rpmtsGetTid(ts));
+@@ -1064,7 +1173,7 @@
+ 		if (rc == RPMERR_ENOENT) {
+ 		    rc = fsmMkfile(di.dirfd, fi, fp, files, psm, nodigest,
+ 				   &firstlink, &firstlinkfile, &di.firstdir,
+-				   &fd);
++				   &fd, &copylinks);
+ 		}
+             } else if (S_ISDIR(fp->sb.st_mode)) {
+                 if (rc == RPMERR_ENOENT) {
+@@ -1131,6 +1240,12 @@
+     if (!rc && fx < 0 && fx != RPMERR_ITER_END)
+ 	rc = fx;
+ 
++    /* PreLinux: the payload has delivered every hard-linked set's content
++       by now; materialise the deferred copies on filesystems without
++       hard links (still under their temporary ";tid" names, so the
++       commit loop renames them like the originals). */
++    prelinux_copy_links(&copylinks, &rc);
++
+     /* If all went well, commit files to final destination */
+     fi = fsmIter(NULL, files, RPMFI_ITER_FWD, &di);
+     while (!rc && (fx = rpmfiNext(fi)) >= 0) {
+@@ -1179,6 +1294,7 @@
+     rpmswAdd(rpmtsOp(ts, RPMTS_OP_DIGEST), fdOp(payload, FDSTAT_DIGEST));
+ 
+ exit:
++    prelinux_copy_links_free(&copylinks);
+     fi = fsmIterFini(fi, &di);
+     Fclose(payload);
+     free(tid);

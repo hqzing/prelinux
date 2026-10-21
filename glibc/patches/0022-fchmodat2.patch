@@ -1,0 +1,80 @@
+--- a/sysdeps/unix/sysv/linux/fchmodat.c
++++ b/sysdeps/unix/sysv/linux/fchmodat.c
+@@ -27,7 +27,6 @@
+ #include <unistd.h>
+ #include <prelinux.h>
+ 
+-#if !__ASSUME_FCHMODAT2
+ static int
+ fchmodat_fallback (int fd, const char *file, mode_t mode, int flag)
+ {
+@@ -86,24 +85,64 @@
+   __close_nocancel (pathfd);
+   return ret;
+ }
+-#endif
+ 
+ int
+ fchmodat (int fd, const char *file, mode_t mode, int flag)
+ {
++#ifdef PRELINUX
+   PRELINUX_TRANSLATE (file);
++  /* HarmonyOS PC (HongMeng kernel 1.13): the security policy does not
++     implement fchmodat2 (syscall 452) and kills the caller with SIGSYS
++     instead of returning ENOSYS.  Both kernel-feature branches upstream
++     (__ASSUME_FCHMODAT2 0 and 1) end up issuing that syscall, so it is
++     never issued here.
++
++     flag == 0: open a real descriptor and fchmod it (keeps the
++     follow-symlink semantics); fall back to the O_PATH + /proc path for
++     files that cannot be opened (mode 0000).
++
++     AT_EMPTY_PATH: operate on FD itself (coreutils' cp -a uses this form
++     with an already-open directory descriptor).  Skipping this case made
++     the wrapper open "" and report ENOENT for a directory that exists.  */
++  if (flag & AT_EMPTY_PATH)
++    {
++      int r = __fchmod (fd, mode);
++      if (r == 0)
++	return PRELINUX_SOFTEN_PRIV (r);
++      if (errno == EBADF || errno == EOPNOTSUPP || errno == EPERM)
++	{
++	  /* O_PATH descriptors cannot be fchmod'ed: go through /proc.  */
++	  struct fd_to_filename fdname;
++	  r = __chmod (__fd_to_filename (fd, &fdname), mode);
++	}
++      return PRELINUX_SOFTEN_PRIV (r);
++    }
++  if (flag == 0)
++    {
++      int f = __openat_nocancel (fd, file,
++				 O_RDONLY | O_NONBLOCK | O_CLOEXEC);
++      if (f >= 0)
++	{
++	  int r = __fchmod (f, mode);
++	  __close_nocancel (f);
++	  return PRELINUX_SOFTEN_PRIV (r);
++	}
++    }
++  return PRELINUX_SOFTEN_PRIV (fchmodat_fallback (fd, file, mode,
++						  flag ? flag
++						       : AT_SYMLINK_NOFOLLOW));
++#else /* !PRELINUX: upstream behaviour, for the equivalence check */
+ #if __ASSUME_FCHMODAT2
+-  return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (fchmodat2, fd, file,
+-						      mode, flag));
++  return INLINE_SYSCALL_CALL (fchmodat2, fd, file, mode, flag);
+ #else
+   if (flag == 0)
+-    return PRELINUX_SOFTEN_PRIV (INLINE_SYSCALL_CALL (fchmodat, fd, file,
+-						        mode));
++    return INLINE_SYSCALL_CALL (fchmodat, fd, file, mode);
+ 
+   int r = INLINE_SYSCALL_CALL (fchmodat2, fd, file, mode, flag);
+   if (r != 0 && errno == ENOSYS)
+     return fchmodat_fallback (fd, file, mode, flag);
+   return r;
+ #endif
++#endif
+ }
+ libc_hidden_def (fchmodat)

@@ -1,0 +1,7 @@
+--- a/sysdeps/unix/sysv/linux/syscalls.list	2026-10-19 15:09:48.816214205 +0800
++++ b/sysdeps/unix/sysv/linux/syscalls.list
+@@ -85,4 +85,3 @@
+ pkey_free	EXTRA	pkey_free	i:i	pkey_free
+ gettid          EXTRA   gettid          Ei:     __gettid	gettid
+ tgkill          EXTRA   tgkill          i:iii   __tgkill	tgkill
+-close_range     -       close_range     i:iii   __close_range   close_range

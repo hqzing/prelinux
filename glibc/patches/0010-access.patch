@@ -1,0 +1,35 @@
+diff --git a/sysdeps/unix/sysv/linux/access.c b/sysdeps/unix/sysv/linux/access.c
+index 4b7c3be0..c7473ccd 100644
+--- a/sysdeps/unix/sysv/linux/access.c
++++ b/sysdeps/unix/sysv/linux/access.c
+@@ -19,10 +19,12 @@
+ #include <fcntl.h>
+ #include <unistd.h>
+ #include <sysdep-cancel.h>
++#include <prelinux.h>
+ 
+ int
+ __access (const char *file, int type)
+ {
++  PRELINUX_TRANSLATE (file);
+ #ifdef __NR_access
+   return INLINE_SYSCALL_CALL (access, file, type);
+ #else
+diff --git a/sysdeps/unix/sysv/linux/faccessat.c b/sysdeps/unix/sysv/linux/faccessat.c
+index 2fa57fd6..4c6cd07d 100644
+--- a/sysdeps/unix/sysv/linux/faccessat.c
++++ b/sysdeps/unix/sysv/linux/faccessat.c
+@@ -21,11 +21,13 @@
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <sysdep.h>
++#include <prelinux.h>
+ 
+ 
+ int
+ __faccessat (int fd, const char *file, int mode, int flag)
+ {
++  PRELINUX_TRANSLATE (file);
+   int ret = INLINE_SYSCALL_CALL (faccessat2, fd, file, mode, flag);
+ #if __ASSUME_FACCESSAT2
+   return ret;

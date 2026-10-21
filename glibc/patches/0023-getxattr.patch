@@ -1,0 +1,85 @@
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/getxattr.c	2026-10-19 15:08:31.748348122 +0800
+@@ -0,0 +1,24 @@
++/* Get an extended attribute.  PreLinux version: replaces the wrapper
++   generated from syscalls.list, adding path translation.  hmdfs on
++   HarmonyOS PC answers ENOENT for a missing attribute; report the
++   documented ENODATA instead, so ACL-aware code (libacl's
++   acl_get_file, hence cp -a / rsync -a) treats it as "no ACL" rather
++   than "source file vanished" .  */
++#include <errno.h>
++#include <sys/xattr.h>
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++ssize_t
++getxattr (const char *path, const char *name, void *value, size_t size)
++{
++  int r;
++  PRELINUX_TRANSLATE (path);
++  r = INLINE_SYSCALL_CALL (getxattr, path, name, value, size);
++#ifdef PRELINUX
++  if (r == -1 && errno == ENOENT)
++    __set_errno (ENODATA);
++#endif
++  return r;
++}
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/lgetxattr.c	2026-10-19 15:08:31.748348122 +0800
+@@ -0,0 +1,21 @@
++/* Get an extended attribute of a symlink itself.  PreLinux version:
++   replaces the wrapper generated from syscalls.list.  See getxattr.c
++   for why ENOENT becomes ENODATA.  */
++#include <errno.h>
++#include <sys/xattr.h>
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++ssize_t
++lgetxattr (const char *path, const char *name, void *value, size_t size)
++{
++  int r;
++  PRELINUX_TRANSLATE (path);
++  r = INLINE_SYSCALL_CALL (lgetxattr, path, name, value, size);
++#ifdef PRELINUX
++  if (r == -1 && errno == ENOENT)
++    __set_errno (ENODATA);
++#endif
++  return r;
++}
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/fgetxattr.c	2026-10-19 15:08:31.748348122 +0800
+@@ -0,0 +1,19 @@
++/* Get an extended attribute of an open file.  PreLinux version:
++   replaces the wrapper generated from syscalls.list.  See getxattr.c
++   for why ENOENT becomes ENODATA.  */
++#include <errno.h>
++#include <sys/xattr.h>
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++ssize_t
++fgetxattr (int fd, const char *name, void *value, size_t size)
++{
++  int r = INLINE_SYSCALL_CALL (fgetxattr, fd, name, value, size);
++#ifdef PRELINUX
++  if (r == -1 && errno == ENOENT)
++    __set_errno (ENODATA);
++#endif
++  return r;
++}
+--- a/sysdeps/unix/sysv/linux/syscalls.list	2026-10-19 14:36:43.794939567 +0800
+--- b/sysdeps/unix/sysv/linux/syscalls.list
+@@ -65,9 +65,6 @@
+ 
+ 
+ 
+-getxattr	-	getxattr	i:sspU	getxattr
+-lgetxattr	-	lgetxattr	i:sspU	lgetxattr
+-fgetxattr	-	fgetxattr	i:ispU	fgetxattr
+ listxattr	-	listxattr	i:ssU	listxattr
+ llistxattr	-	llistxattr	i:ssU	llistxattr
+ flistxattr	-	flistxattr	i:isU	flistxattr

@@ -1,0 +1,23 @@
+diff --git a/sysdeps/unix/sysv/linux/execve.c b/sysdeps/unix/sysv/linux/execve.c
+new file mode 100644
+index 00000000..1e0b617d
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/execve.c
+@@ -0,0 +1,17 @@
++/* Execute a program.  PreLinux version: replaces the wrapper generated
++   from syscalls.list.  The kernel resolves PT_INTERP itself, so the
++   path must be translated before the syscall .  execvp and
++   execvpe funnel into __execve per PATH candidate, and posix_spawn
++   (spawni.c) calls __execve in the child, so this single point covers
++   them all.  */
++#include <unistd.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++__execve (const char *path, char *const argv[], char *const envp[])
++{
++  PRELINUX_TRANSLATE (path);
++  return INLINE_SYSCALL_CALL (execve, path, argv, envp);
++}
++weak_alias (__execve, execve)

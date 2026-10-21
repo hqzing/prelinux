@@ -1,0 +1,11 @@
+--- a/sysdeps/nptl/dl-tunables.list
++++ b/sysdeps/nptl/dl-tunables.list
+@@ -31,7 +31,7 @@
+       type: INT_32
+       minval: 0
+       maxval: 1
+-      default: 1
++      default: 0
+     }
+     stack_hugetlb {
+       type: INT_32

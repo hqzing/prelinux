@@ -1,0 +1,98 @@
+diff --git a/sysdeps/unix/sysv/linux/fstatat64.c b/sysdeps/unix/sysv/linux/fstatat64.c
+index da496177..5853c8f0 100644
+--- a/sysdeps/unix/sysv/linux/fstatat64.c
++++ b/sysdeps/unix/sysv/linux/fstatat64.c
+@@ -25,6 +25,7 @@
+ #include <time.h>
+ #include <sys/sysmacros.h>
+ #include <internal-stat.h>
++#include <prelinux.h>
+ 
+ #if __TIMESIZE == 64 \
+      && (__WORDSIZE == 32 \
+@@ -144,6 +145,7 @@ int
+ __fstatat64_time64 (int fd, const char *file, struct __stat64_t64 *buf,
+ 		    int flag)
+ {
++  PRELINUX_TRANSLATE (file);
+   int r;
+ 
+ #if FSTATAT_USE_STATX
+diff --git a/sysdeps/unix/sysv/linux/fxstatat64.c b/sysdeps/unix/sysv/linux/fxstatat64.c
+index 5255ca05..f013e358 100644
+--- a/sysdeps/unix/sysv/linux/fxstatat64.c
++++ b/sysdeps/unix/sysv/linux/fxstatat64.c
+@@ -25,6 +25,7 @@
+ #include <xstatconv.h>
+ #include <statx_cp.h>
+ #include <shlib-compat.h>
++#include <prelinux.h>
+ 
+ #if LIB_COMPAT(libc, GLIBC_2_4, GLIBC_2_33)
+ 
+@@ -33,6 +34,7 @@
+ int
+ __fxstatat64 (int vers, int fd, const char *file, struct stat64 *st, int flag)
+ {
++  PRELINUX_TRANSLATE (file);
+ #if XSTAT_IS_XSTAT64
+ # ifdef __NR_newfstatat
+   /* 64-bit kABI, e.g. aarch64, powerpc64*, s390x, riscv64, and
+diff --git a/sysdeps/unix/sysv/linux/lxstat64.c b/sysdeps/unix/sysv/linux/lxstat64.c
+index 16ad8b82..88fb2006 100644
+--- a/sysdeps/unix/sysv/linux/lxstat64.c
++++ b/sysdeps/unix/sysv/linux/lxstat64.c
+@@ -25,6 +25,7 @@
+ #include <xstatconv.h>
+ #include <statx_cp.h>
+ #include <shlib-compat.h>
++#include <prelinux.h>
+ 
+ #if LIB_COMPAT(libc, GLIBC_2_1, GLIBC_2_33)
+ 
+@@ -33,6 +34,7 @@
+ int
+ ___lxstat64 (int vers, const char *name, struct stat64 *buf)
+ {
++  PRELINUX_TRANSLATE (name);
+ #if XSTAT_IS_XSTAT64
+ # ifdef __NR_lstat64
+   /* 64-bit kABI outlier, e.g. sparc64.  */
+diff --git a/sysdeps/unix/sysv/linux/statx.c b/sysdeps/unix/sysv/linux/statx.c
+index a6295a15..33acbf31 100644
+--- a/sysdeps/unix/sysv/linux/statx.c
++++ b/sysdeps/unix/sysv/linux/statx.c
+@@ -20,11 +20,13 @@
+ #include <sys/stat.h>
+ #include <sysdep.h>
+ #include "statx_generic.c"
++#include <prelinux.h>
+ 
+ int
+ statx (int fd, const char *path, int flags,
+        unsigned int mask, struct statx *buf)
+ {
++  PRELINUX_TRANSLATE (path);
+   int ret = INLINE_SYSCALL_CALL (statx, fd, path, flags, mask, buf);
+ #ifdef __ASSUME_STATX
+   return ret;
+diff --git a/sysdeps/unix/sysv/linux/xstat64.c b/sysdeps/unix/sysv/linux/xstat64.c
+index aa631521..3b1e6058 100644
+--- a/sysdeps/unix/sysv/linux/xstat64.c
++++ b/sysdeps/unix/sysv/linux/xstat64.c
+@@ -25,6 +25,7 @@
+ #include <xstatconv.h>
+ #include <statx_cp.h>
+ #include <shlib-compat.h>
++#include <prelinux.h>
+ 
+ #if LIB_COMPAT(libc, GLIBC_2_0, GLIBC_2_33)
+ 
+@@ -33,6 +34,7 @@
+ int
+ ___xstat64 (int vers, const char *name, struct stat64 *buf)
+ {
++  PRELINUX_TRANSLATE (name);
+ #if XSTAT_IS_XSTAT64
+ # ifdef __NR_stat64
+   /* 64-bit kABI outlier, e.g. sparc64.  */

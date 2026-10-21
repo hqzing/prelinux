@@ -1,0 +1,37 @@
+--- a/sysdeps/unix/syscalls.list
++++ b/sysdeps/unix/syscalls.list
+@@ -62,7 +62,6 @@
+ sync		-	sync		i:	sync
+ syncfs		-	syncfs		i:i	syncfs
+ umask		-	umask		Ei:i	__umask		umask
+-uname		-	uname		i:p	__uname		uname
+ utimes		-	utimes		i:sp	__utimes	utimes
+ vhangup		-	vhangup		i:i	vhangup
+ write		-	write		Ci:ibU	__libc_write	__write write
+--- /dev/null	2026-10-18 18:39:40.537000000 +0800
++++ b/sysdeps/unix/sysv/linux/uname.c	2026-10-18 23:10:21.977532163 +0800
+@@ -0,0 +1,24 @@
++/* PreLinux uname(2): report sysname "Linux" even when the running
++   kernel says otherwise (the HongMeng kernel reports
++   "HarmonyOS", breaking Autotools/CMake and prebuilt programs that
++   check the OS name).  No-op on a Linux kernel.  Replaces the wrapper
++   generated from sysdeps/unix/syscalls.list.  Without -DPRELINUX this
++   compiles to the same behavior as the generated wrapper.  */
++#include <string.h>
++#include <sys/utsname.h>
++#include <sysdep.h>
++#include <prelinux.h>
++
++int
++__uname (struct utsname *buf)
++{
++  int ret = INLINE_SYSCALL_CALL (uname, buf);
++#ifdef PRELINUX
++  if (ret == 0 && strcmp (buf->sysname, "Linux") != 0)
++    strcpy (buf->sysname, "Linux"); /* field is 65 bytes, plenty */
++#endif
++  return ret;
++}
++weak_alias (__uname, uname)
++libc_hidden_def (__uname)
++libc_hidden_def (uname)

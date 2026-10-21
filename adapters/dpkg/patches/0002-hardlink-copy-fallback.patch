@@ -1,0 +1,63 @@
+--- a/src/main/archives.c
++++ b/src/main/archives.c
+@@ -432,8 +432,58 @@
+     if (linknode->flags & (FNNF_DEFERRED_RENAME | FNNF_NEW_CONFF))
+       varbuf_add_str(&hardlinkfn, DPKGNEWEXT);
+     varbuf_end_str(&hardlinkfn);
+-    if (link(hardlinkfn.buf, path))
+-      ohshite(_("error creating hard link '%.255s'"), te->name);
++    if (link(hardlinkfn.buf, path)) {
++      /* PreLinux: filesystems without hard-link support (HarmonyOS PC's
++       * hmdfs returns EPERM from link(2)) get an independent copy of the
++       * same bytes instead.  The content is identical and no package
++       * relies on the link count; failing the transaction over a missing
++       * space optimisation would make the distro unusable there. */
++      if (errno == EPERM || errno == EOPNOTSUPP || errno == ENOSYS ||
++          errno == EXDEV) {
++        struct stat linkst;
++        char copybuf[65536];
++        ssize_t nread;
++        int infd, outfd;
++
++        if (stat(hardlinkfn.buf, &linkst) < 0)
++          ohshite(_("error reading hard link source '%.255s'"), te->name);
++        infd = open(hardlinkfn.buf, O_RDONLY);
++        if (infd < 0)
++          ohshite(_("error reading hard link source '%.255s'"), te->name);
++        outfd = open(path, O_WRONLY | O_CREAT | O_TRUNC,
++                     linkst.st_mode & 07777);
++        if (outfd < 0) {
++          close(infd);
++          ohshite(_("error creating hard link '%.255s'"), te->name);
++        }
++        while ((nread = read(infd, copybuf, sizeof(copybuf))) > 0) {
++          char *cp = copybuf;
++          ssize_t left = nread;
++
++          while (left > 0) {
++            ssize_t nw = write(outfd, cp, left);
++
++            if (nw < 0) {
++              close(infd);
++              close(outfd);
++              ohshite(_("error creating hard link '%.255s'"), te->name);
++            }
++            cp += nw;
++            left -= nw;
++          }
++        }
++        if (nread < 0) {
++          close(infd);
++          close(outfd);
++          ohshite(_("error reading hard link source '%.255s'"), te->name);
++        }
++        close(infd);
++        if (close(outfd))
++          ohshite(_("error closing/writing '%.255s'"), te->name);
++      } else {
++        ohshite(_("error creating hard link '%.255s'"), te->name);
++      }
++    }
+     namenode->newhash = linknode->newhash;
+     debug(dbg_eachfiledetail, "tarobject hardlink digest=%s", namenode->newhash);
+     break;
